@@ -1,0 +1,25 @@
+# Credenciales — nunca versionar
+.env
+
+# Entorno virtual
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Archivos exportados por la aplicación
+*.xlsx
+*.xls
+
+# Editores
+.vscode/
+.idea/
+*.suo
+*.user
+
+# PyInstaller (si se empaqueta a exe)
+dist/
+build/
+*.spec

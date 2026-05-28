@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller pillow
+
+      - name: Extract version from tag
+        id: version
+        shell: pwsh
+        run: |
+          $ver = $env:GITHUB_REF -replace 'refs/tags/v', ''
+          "VERSION=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Generate icon (si no existe assets/icon.ico)
+        run: python generate_icon.py
+
+      - name: Build executable with PyInstaller
+        shell: pwsh
+        run: |
+          pyinstaller `
+            --onedir `
+            --windowed `
+            --icon="assets\icon.ico" `
+            --name="SIA_Reporte_Mensual" `
+            --add-data="assets;assets" `
+            main.py
+
+      - name: Build Inno Setup installer
+        shell: pwsh
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            /DAppVersion="${{ steps.version.outputs.VERSION }}" `
+            setup.iss
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Output/SIA_Reporte_Mensual_Setup_*.exe
+          generate_release_notes: true
