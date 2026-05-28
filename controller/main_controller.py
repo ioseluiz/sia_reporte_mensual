@@ -1,5 +1,5 @@
-from PyQt6.QtCore import QObject, QRunnable, QThreadPool, pyqtSignal, pyqtSlot
-from PyQt6.QtWidgets import QFileDialog
+from PyQt6.QtCore import QObject, QRunnable, QThreadPool, pyqtSignal, pyqtSlot, QTimer
+from PyQt6.QtWidgets import QFileDialog, QDialog
 from datetime import datetime
 
 import pandas as pd
@@ -40,7 +40,8 @@ class MainController:
         self._data: list[dict] = []
         self._busy = False
         self._connect_signals()
-        self._load_ramos()
+        # Diferir el arranque al event loop para que la ventana ya esté visible
+        QTimer.singleShot(0, self._startup)
 
     # ------------------------------------------------------------------
     # Señales
@@ -53,6 +54,45 @@ class MainController:
         self.view.btn_select_all.clicked.connect(self.view.select_all_ramos)
         self.view.btn_clear_all.clicked.connect(self.view.clear_all_ramos)
         self.view.table.doubleClicked.connect(self._on_row_double_clicked)
+        self.view.settings_requested.connect(self._open_settings)
+
+    # ------------------------------------------------------------------
+    # Arranque y configuración
+    # ------------------------------------------------------------------
+
+    def _startup(self):
+        if self._check_env_configured():
+            self._load_ramos()
+        else:
+            self.view.set_status(
+                "Credenciales no configuradas. Completa la conexión para continuar."
+            )
+            self._open_settings(first_run=True)
+
+    def _check_env_configured(self) -> bool:
+        from dotenv import dotenv_values
+        from model.database import get_env_path
+        import os
+        path = get_env_path()
+        if not os.path.exists(path):
+            return False
+        vals = dotenv_values(path)
+        required = [
+            "DB_SERVER_SQLSERVER", "DB_NAME_SQLSERVER",
+            "DB_USERNAME_SQLSERVER", "DB_PASSWORD_SQLSERVER",
+        ]
+        return all(vals.get(k, "").strip() for k in required)
+
+    def _open_settings(self, first_run: bool = False):
+        from view.settings_dialog import SettingsDialog
+        dialog = SettingsDialog(self.view)
+        result = dialog.exec()
+        if result == QDialog.DialogCode.Accepted:
+            self._load_ramos()
+        elif first_run:
+            self.view.set_status(
+                "Sin credenciales configuradas. Usa Configuración → Conexión a base de datos."
+            )
 
     # ------------------------------------------------------------------
     # Cargar ramos
@@ -77,9 +117,17 @@ class MainController:
         self._set_busy(False)
 
     def _on_ramos_error(self, error: str):
-        self.view.set_status("Error al cargar ramos.")
-        self.view.show_error("Error de conexión", f"No se pudieron cargar los ramos:\n\n{error}")
         self._set_busy(False)
+        if "Faltan las siguientes variables" in error:
+            self.view.set_status("Credenciales incompletas en .env.")
+            self._open_settings(first_run=True)
+        else:
+            self.view.set_status("Error al cargar ramos.")
+            self.view.show_error(
+                "Error de conexión",
+                f"No se pudieron cargar los ramos:\n\n{error}"
+                "\n\nVerifica las credenciales en Configuración → Conexión a base de datos.",
+            )
 
     # ------------------------------------------------------------------
     # Consulta

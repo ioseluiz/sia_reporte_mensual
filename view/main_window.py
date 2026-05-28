@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QMessageBox, QSizePolicy, QLineEdit, QTableView, QComboBox,
 )
 from PyQt6.QtGui import QFont, QStandardItemModel, QStandardItem
-from PyQt6.QtCore import Qt, QDate, QSortFilterProxyModel, QRegularExpression
+from PyQt6.QtCore import Qt, QDate, QSortFilterProxyModel, QRegularExpression, pyqtSignal
 
 
 class _MultiColumnProxy(QSortFilterProxyModel):
@@ -57,6 +57,8 @@ class _MultiColumnProxy(QSortFilterProxyModel):
 
 
 class MainWindow(QMainWindow):
+    settings_requested = pyqtSignal()
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SIA - Reporte Mensual")
@@ -73,6 +75,8 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _setup_ui(self):
+        self._build_menu_bar()
+
         central = QWidget()
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
@@ -84,6 +88,11 @@ class MainWindow(QMainWindow):
 
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
+
+    def _build_menu_bar(self):
+        config_menu = self.menuBar().addMenu("Configuración")
+        action_conn = config_menu.addAction("Conexión a base de datos…")
+        action_conn.triggered.connect(self.settings_requested.emit)
 
     def _build_form_panel(self) -> QFrame:
         frame = QFrame()

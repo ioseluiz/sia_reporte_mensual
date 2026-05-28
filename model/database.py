@@ -4,11 +4,30 @@ import threading
 import pymssql
 from dotenv import load_dotenv
 
-# Cuando corre como exe de PyInstaller, .env vive junto al ejecutable, no en _MEIPASS
-if getattr(sys, "frozen", False):
-    load_dotenv(dotenv_path=os.path.join(os.path.dirname(sys.executable), ".env"))
-else:
-    load_dotenv()
+
+def get_env_path() -> str:
+    """Ruta absoluta al archivo .env según si corre como exe o en desarrollo."""
+    if getattr(sys, "frozen", False):
+        return os.path.join(os.path.dirname(sys.executable), ".env")
+    # Desarrollo: raíz del proyecto (un nivel arriba de model/)
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+
+
+def write_env(server: str, database: str, username: str, password: str) -> None:
+    """Escribe las credenciales en .env y reinicia la conexión."""
+    path = get_env_path()
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(
+            f"DB_SERVER_SQLSERVER={server}\n"
+            f"DB_NAME_SQLSERVER={database}\n"
+            f"DB_USERNAME_SQLSERVER={username}\n"
+            f"DB_PASSWORD_SQLSERVER={password}\n"
+        )
+    load_dotenv(dotenv_path=path, override=True)
+    _manager.reset()
+
+
+load_dotenv(dotenv_path=get_env_path())
 
 
 class _ConnectionManager:
@@ -21,6 +40,12 @@ class _ConnectionManager:
     def __init__(self):
         self._conn = None
         self._lock = threading.Lock()
+
+    def reset(self) -> None:
+        """Cierra la conexión actual para que se reconecte con las nuevas credenciales."""
+        with self._lock:
+            self._close_silently(self._conn)
+            self._conn = None
 
     def get(self) -> pymssql.Connection:
         with self._lock:
