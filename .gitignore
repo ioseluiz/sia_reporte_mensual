@@ -12,6 +12,7 @@ __pycache__/
 # Archivos exportados por la aplicación
 *.xlsx
 *.xls
+*.csv
 
 # Editores
 .vscode/

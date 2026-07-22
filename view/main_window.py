@@ -58,6 +58,10 @@ class _MultiColumnProxy(QSortFilterProxyModel):
 
 class MainWindow(QMainWindow):
     settings_requested = pyqtSignal()
+    export_collaborators_requested = pyqtSignal()
+    report_under_8_requested = pyqtSignal()
+    search_transactions_requested = pyqtSignal()
+    user_transactions_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -93,6 +97,16 @@ class MainWindow(QMainWindow):
         config_menu = self.menuBar().addMenu("Configuración")
         action_conn = config_menu.addAction("Conexión a base de datos…")
         action_conn.triggered.connect(self.settings_requested.emit)
+
+        reportes_menu = self.menuBar().addMenu("Reportes")
+        action_export_colab = reportes_menu.addAction("Exportar Colaboradores")
+        action_export_colab.triggered.connect(self.export_collaborators_requested.emit)
+
+        action_search_trans = reportes_menu.addAction("Buscar Transacciones por Usuario…")
+        action_search_trans.triggered.connect(self.search_transactions_requested.emit)
+
+        action_user_trans = reportes_menu.addAction("Transacciones por Empleado (CodRamo)…")
+        action_user_trans.triggered.connect(self.user_transactions_requested.emit)
 
     def _build_form_panel(self) -> QFrame:
         frame = QFrame()
@@ -158,8 +172,13 @@ class MainWindow(QMainWindow):
         self.btn_export.setFixedHeight(36)
         self.btn_export.setEnabled(False)
 
+        self.btn_report_under_8 = QPushButton("Reporte Horas L-V (< 8h)")
+        self.btn_report_under_8.setFixedHeight(36)
+        self.btn_report_under_8.clicked.connect(self.report_under_8_requested.emit)
+
         action_row.addWidget(self.btn_query)
         action_row.addStretch()
+        action_row.addWidget(self.btn_report_under_8)
         action_row.addWidget(self.btn_export)
         layout.addLayout(action_row)
 
@@ -392,6 +411,7 @@ class MainWindow(QMainWindow):
     def set_busy(self, busy: bool):
         self.btn_query.setEnabled(not busy)
         self.btn_reload_ramos.setEnabled(not busy)
+        self.btn_report_under_8.setEnabled(not busy)
         if busy:
             self.btn_export.setEnabled(False)
 

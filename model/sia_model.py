@@ -2,6 +2,19 @@ from datetime import date
 from .database import get_connection
 
 
+def get_proyectos_ph() -> list[dict]:
+    """Devuelve todos los registros de tblProyectos cuyo NomProyecto contiene 'PH'."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT *
+        FROM tblProyectos
+        WHERE NomProyecto LIKE '%PH%'
+        ORDER BY CodProyecto
+    """)
+    return cursor.fetchall()
+
+
 def get_ramos() -> list[str]:
     """
     Devuelve los CodRamo distintos de tblTransacciones para proyectos INICA (p.CodRamo LIKE 'INI%').
@@ -96,4 +109,142 @@ def query_transactions(
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(sql, params)
+    return cursor.fetchall()
+
+
+def get_collaborators() -> list[dict]:
+    """
+    Devuelve los colaboradores de tblUsuarios, excluyendo a los
+    que tienen nombres inactivos/de prueba que inician con 'ZZ' o 'zz',
+    y excluyendo la columna 'Clave'.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT IP, NomUsuario, Grado, CodRamo, Acceso, AccesoEstimar, Salario
+        FROM tblUsuarios
+        WHERE NomUsuario NOT LIKE 'ZZ%' AND NomUsuario NOT LIKE 'zz%'
+        ORDER BY NomUsuario
+    """)
+    return cursor.fetchall()
+
+
+def get_users_under_8_hours(start_date, end_date) -> list[dict]:
+    """
+    Devuelve los usuarios con menos de 8 horas regulares diarias de lunes a viernes,
+    excluyendo usuarios que inician con 'ZZ' o 'zz'.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    sql = """
+        SELECT
+            u.NomUsuario,
+            u.CodRamo,
+            t.Fecha,
+            ROUND(SUM(t.HoraRegular), 2) AS HorasRegulares
+        FROM tblTransacciones t
+        INNER JOIN tblUsuarios u ON t.IP = u.IP
+        WHERE t.Fecha >= %s AND t.Fecha <= %s
+          AND u.NomUsuario NOT LIKE 'ZZ%' AND u.NomUsuario NOT LIKE 'zz%'
+          AND ((DATEPART(dw, t.Fecha) + @@DATEFIRST - 2) % 7) < 5
+        GROUP BY u.NomUsuario, u.CodRamo, t.Fecha
+        HAVING ROUND(SUM(t.HoraRegular), 2) < 8
+        ORDER BY u.CodRamo, u.NomUsuario, t.Fecha
+    """
+    cursor.execute(sql, (start_date, end_date))
+    return cursor.fetchall()
+
+
+def get_user_ramos() -> list[str]:
+    """
+    Devuelve los CodRamo distintos de tblUsuarios (ramos de los empleados),
+    excluyendo usuarios inactivos/de prueba ('ZZ%').
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT DISTINCT CodRamo
+        FROM tblUsuarios
+        WHERE CodRamo IS NOT NULL
+          AND LTRIM(RTRIM(CodRamo)) <> ''
+          AND NomUsuario NOT LIKE 'ZZ%'
+          AND NomUsuario NOT LIKE 'zz%'
+        ORDER BY CodRamo
+    """)
+    return [row["CodRamo"] for row in cursor.fetchall()]
+
+
+def get_users_by_ramo(cod_ramo: str) -> list[dict]:
+    """
+    Devuelve los empleados (IP, NomUsuario) que pertenecen a un CodRamo
+    dado en tblUsuarios, excluyendo 'ZZ%'.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT IP, NomUsuario
+        FROM tblUsuarios
+        WHERE CodRamo = %s
+          AND NomUsuario NOT LIKE 'ZZ%'
+          AND NomUsuario NOT LIKE 'zz%'
+        ORDER BY NomUsuario
+    """, (cod_ramo,))
+    return cursor.fetchall()
+
+
+def get_all_transactions_by_ip(ip: str, start_date, end_date) -> list[dict]:
+    """
+    Devuelve TODAS las columnas de tblTransacciones para un empleado (IP)
+    en el rango de fechas, junto con el NomUsuario. Une por IP.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT
+            u.NomUsuario,
+            t.ID,
+            t.Fecha,
+            t.FechaCreacion,
+            t.CreadoPor,
+            t.CodProyecto,
+            t.CodRamo,
+            t.HoraRegular,
+            t.HoraExtra,
+            t.HoraComp,
+            t.Salario,
+            t.IP
+        FROM tblTransacciones t
+        INNER JOIN tblUsuarios u ON t.IP = u.IP
+        WHERE t.IP = %s
+          AND t.Fecha >= %s
+          AND t.Fecha <= %s
+        ORDER BY t.Fecha, t.ID
+    """, (ip, start_date, end_date))
+    return cursor.fetchall()
+
+
+def search_user_transactions(username: str, start_date, end_date) -> list[dict]:
+    """
+    Busca transacciones individuales filtradas por parte del nombre de usuario y un rango de fechas.
+    Retorna NomUsuario, CodProyecto, DescProyecto, HoraRegular, HoraExtra, HoraComp y Fecha.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    sql = """
+        SELECT
+            u.NomUsuario,
+            t.CodProyecto,
+            CAST(p.DescProyecto AS NVARCHAR(MAX)) AS DescProyecto,
+            t.HoraRegular,
+            t.HoraExtra,
+            t.HoraComp,
+            t.Fecha
+        FROM tblTransacciones t
+        INNER JOIN tblUsuarios u ON t.IP = u.IP
+        LEFT JOIN tblProyectos p ON t.CodProyecto = p.CodProyecto
+        WHERE t.Fecha >= %s AND t.Fecha <= %s
+          AND u.NomUsuario LIKE %s
+        ORDER BY t.Fecha, u.NomUsuario
+    """
+    cursor.execute(sql, (start_date, end_date, f"%{username}%"))
     return cursor.fetchall()

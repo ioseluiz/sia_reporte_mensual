@@ -55,6 +55,10 @@ class MainController:
         self.view.btn_clear_all.clicked.connect(self.view.clear_all_ramos)
         self.view.table.doubleClicked.connect(self._on_row_double_clicked)
         self.view.settings_requested.connect(self._open_settings)
+        self.view.export_collaborators_requested.connect(self._export_collaborators)
+        self.view.report_under_8_requested.connect(self._generate_report_under_8)
+        self.view.search_transactions_requested.connect(self._open_search_transactions)
+        self.view.user_transactions_requested.connect(self._open_user_transactions)
 
     # ------------------------------------------------------------------
     # Arranque y configuración
@@ -241,6 +245,286 @@ class MainController:
             df = pd.DataFrame(self._data)
             df.to_excel(path, index=False)
             self.view.set_status(f"Reporte exportado: {path}")
+            self.view.show_info("Exportar", f"Archivo guardado exitosamente en:\n{path}")
+        except Exception as exc:
+            self.view.show_error("Error al exportar", str(exc))
+
+    def _export_collaborators(self):
+        if self._busy:
+            return
+
+        default_name = "colaboradores_sia.csv"
+        path, _ = QFileDialog.getSaveFileName(
+            self.view,
+            "Exportar Colaboradores",
+            default_name,
+            "Archivos CSV (*.csv)"
+        )
+        if not path:
+            return
+
+        self._set_busy(True)
+        self.view.set_status("Consultando colaboradores en la base de datos...")
+
+        worker = _Worker(sia_model.get_collaborators)
+        worker.signals.finished.connect(
+            lambda data, p=path: self._on_export_collaborators_finished(data, p)
+        )
+        worker.signals.error.connect(self._on_export_collaborators_error)
+        self._pool.start(worker)
+
+    def _on_export_collaborators_finished(self, data: list, path: str):
+        self._set_busy(False)
+        if not data:
+            self.view.show_info("Exportar Colaboradores", "No se encontraron colaboradores para exportar.")
+            self.view.set_status("Exportación cancelada: sin datos.")
+            return
+
+        try:
+            df = pd.DataFrame(data)
+            df.to_csv(path, index=False, encoding="utf-8-sig")
+            self.view.set_status(f"Colaboradores exportados: {path}")
+            self.view.show_info("Exportar Colaboradores", f"Archivo guardado exitosamente en:\n{path}")
+        except Exception as exc:
+            self.view.show_error("Error al exportar", f"No se pudo escribir el archivo CSV:\n{exc}")
+            self.view.set_status("Error en la exportación de colaboradores.")
+
+    def _on_export_collaborators_error(self, error: str):
+        self._set_busy(False)
+        self.view.set_status("Error al consultar colaboradores.")
+        self.view.show_error(
+            "Error al exportar colaboradores",
+            f"Ocurrió un error al obtener la información de la base de datos:\n\n{error}"
+        )
+
+    def _generate_report_under_8(self):
+        if self._busy:
+            return
+
+        start_date, end_date = self.view.get_date_range()
+        if start_date > end_date:
+            self.view.show_error("Validación", "La fecha inicial no puede ser mayor que la fecha final.")
+            return
+
+        default_name = f"Reporte_Horas_Menores_8_{datetime.now().strftime('%Y-%m-%d_%H%M')}.xlsx"
+        path, _ = QFileDialog.getSaveFileName(
+            self.view,
+            "Guardar Reporte Horas (< 8h)",
+            default_name,
+            "Archivos de Excel (*.xlsx)"
+        )
+        if not path:
+            return
+
+        self._set_busy(True)
+        self.view.set_status("Consultando transacciones diarias menores a 8 horas...")
+
+        worker = _Worker(sia_model.get_users_under_8_hours, start_date, end_date)
+        worker.signals.finished.connect(
+            lambda data, p=path: self._on_report_under_8_finished(data, p)
+        )
+        worker.signals.error.connect(self._on_report_under_8_error)
+        self._pool.start(worker)
+
+    def _on_report_under_8_finished(self, data: list, path: str):
+        self._set_busy(False)
+        if not data:
+            self.view.show_info(
+                "Reporte Horas L-V",
+                "No se encontraron colaboradores con menos de 8 horas regulares de Lunes a Viernes en las fechas seleccionadas."
+            )
+            self.view.set_status("Generación de reporte cancelada: sin datos.")
+            return
+
+        try:
+            df = pd.DataFrame(data)
+
+            # Formatear la fecha
+            if "Fecha" in df.columns:
+                df["Fecha"] = pd.to_datetime(df["Fecha"]).dt.date
+
+            # Renombrar columnas
+            df_rename = df.rename(columns={
+                "NomUsuario": "Usuario",
+                "CodRamo": "CodRamo",
+                "Fecha": "Fecha",
+                "HorasRegulares": "Horas Regulares"
+            })
+
+            # Guardar en hojas separadas por CodRamo
+            with pd.ExcelWriter(path, engine="openpyxl") as writer:
+                for ramo, group in df_rename.groupby("CodRamo"):
+                    sheet_name = str(ramo).strip()[:30]
+                    for char in [":", "\\", "/", "?", "*", "[", "]"]:
+                        sheet_name = sheet_name.replace(char, "")
+                    if not sheet_name:
+                        sheet_name = "Sin_Ramo"
+                    group.to_excel(writer, sheet_name=sheet_name, index=False)
+
+            self.view.set_status(f"Reporte de Horas L-V generado: {path}")
+            self.view.show_info("Reporte Horas L-V", f"Reporte guardado exitosamente en:\n{path}")
+        except Exception as exc:
+            self.view.show_error("Error al generar reporte", f"No se pudo escribir el archivo Excel:\n{exc}")
+            self.view.set_status("Error en la generación del reporte.")
+
+    def _on_report_under_8_error(self, error: str):
+        self._set_busy(False)
+        self.view.set_status("Error al consultar reporte de horas.")
+        self.view.show_error(
+            "Error al generar reporte",
+            f"Ocurrió un error al obtener la información de la base de datos:\n\n{error}"
+        )
+
+    def _open_search_transactions(self):
+        from view.search_transactions_dialog import SearchTransactionsDialog
+        start_date, end_date = self.view.date_start.date(), self.view.date_end.date()
+        
+        dialog = SearchTransactionsDialog(start_date, end_date, self.view)
+        dialog.search_requested.connect(self._run_transactions_search)
+        dialog.export_requested.connect(self._export_search_results)
+        self._search_dialog = dialog
+        dialog.exec()
+
+    def _run_transactions_search(self, username: str, start_date, end_date):
+        self._search_dialog.set_busy(True)
+        worker = _Worker(sia_model.search_user_transactions, username, start_date, end_date)
+        worker.signals.finished.connect(self._on_search_finished)
+        worker.signals.error.connect(self._on_search_error)
+        self._pool.start(worker)
+
+    def _on_search_finished(self, data: list):
+        if hasattr(self, "_search_dialog") and self._search_dialog.isVisible():
+            self._search_dialog.display_results(data)
+            self._search_dialog.set_busy(False)
+
+    def _on_search_error(self, error: str):
+        if hasattr(self, "_search_dialog") and self._search_dialog.isVisible():
+            self._search_dialog.set_busy(False)
+            self.view.show_error("Error de búsqueda", f"Ocurrió un error al consultar:\n\n{error}")
+
+    def _export_search_results(self, data: list):
+        default_name = f"Busqueda_Transacciones_{datetime.now().strftime('%Y-%m-%d_%H%M')}.xlsx"
+        path, _ = QFileDialog.getSaveFileName(
+            self.view, "Guardar Resultados de Búsqueda", default_name, "Excel (*.xlsx)"
+        )
+        if not path:
+            return
+        try:
+            df = pd.DataFrame(data)
+            if "Fecha" in df.columns:
+                df["Fecha"] = pd.to_datetime(df["Fecha"]).dt.date
+            
+            # Reordenar y renombrar columnas para que se exporte idéntico a la tabla
+            columns_map = {
+                "NomUsuario": "Usuario",
+                "CodProyecto": "Proyecto",
+                "DescProyecto": "Descripción Proyecto",
+                "HoraRegular": "Hora Regular",
+                "HoraExtra": "Hora Extra",
+                "HoraComp": "Hora Comp",
+                "Fecha": "Fecha"
+            }
+            actual_cols = [c for c in columns_map.keys() if c in df.columns]
+            df = df[actual_cols].rename(columns=columns_map)
+            
+            df.to_excel(path, index=False)
+            self.view.show_info("Exportar", f"Archivo guardado exitosamente en:\n{path}")
+        except Exception as exc:
+            self.view.show_error("Error al exportar", str(exc))
+
+    # ------------------------------------------------------------------
+    # Transacciones por Empleado (CodRamo → Usuario)
+    # ------------------------------------------------------------------
+
+    def _open_user_transactions(self):
+        if self._busy:
+            return
+        self._set_busy(True)
+        self.view.set_status("Cargando ramos de empleados…")
+        worker = _Worker(sia_model.get_user_ramos)
+        worker.signals.finished.connect(self._on_user_ramos_loaded)
+        worker.signals.error.connect(self._on_user_transactions_error)
+        self._pool.start(worker)
+
+    def _on_user_ramos_loaded(self, ramos: list):
+        self._set_busy(False)
+        if not ramos:
+            self.view.set_status("No se encontraron ramos en tblUsuarios.")
+            self.view.show_info(
+                "Transacciones por Empleado",
+                "No se encontraron ramos activos en tblUsuarios."
+            )
+            return
+        self.view.set_status(f"{len(ramos)} ramos cargados.")
+
+        from view.user_transactions_dialog import UserTransactionsDialog
+        start_date = self.view.date_start.date()
+        end_date = self.view.date_end.date()
+
+        dialog = UserTransactionsDialog(ramos, start_date, end_date, self.view)
+        dialog.ramo_changed.connect(self._load_users_by_ramo)
+        dialog.search_requested.connect(self._run_user_transactions_query)
+        dialog.export_requested.connect(self._export_user_transactions)
+        self._user_trans_dialog = dialog
+        dialog.exec()
+
+    def _load_users_by_ramo(self, cod_ramo: str):
+        worker = _Worker(sia_model.get_users_by_ramo, cod_ramo)
+        worker.signals.finished.connect(self._on_users_by_ramo_loaded)
+        worker.signals.error.connect(self._on_user_transactions_error)
+        self._pool.start(worker)
+
+    def _on_users_by_ramo_loaded(self, users: list):
+        if hasattr(self, "_user_trans_dialog") and self._user_trans_dialog.isVisible():
+            self._user_trans_dialog.set_users(users)
+
+    def _run_user_transactions_query(self, ip: str, nom_usuario: str, start_date, end_date):
+        self._user_trans_dialog.set_busy(True)
+        worker = _Worker(sia_model.get_all_transactions_by_ip, ip, start_date, end_date)
+        worker.signals.finished.connect(self._on_user_transactions_finished)
+        worker.signals.error.connect(self._on_user_transactions_query_error)
+        self._pool.start(worker)
+
+    def _on_user_transactions_finished(self, data: list):
+        if hasattr(self, "_user_trans_dialog") and self._user_trans_dialog.isVisible():
+            self._user_trans_dialog.display_results(data)
+            self._user_trans_dialog.set_busy(False)
+
+    def _on_user_transactions_query_error(self, error: str):
+        if hasattr(self, "_user_trans_dialog") and self._user_trans_dialog.isVisible():
+            self._user_trans_dialog.set_busy(False)
+        self.view.show_error(
+            "Error de consulta",
+            f"Ocurrió un error al consultar las transacciones del empleado:\n\n{error}"
+        )
+
+    def _on_user_transactions_error(self, error: str):
+        self._set_busy(False)
+        self.view.set_status("Error al cargar datos de empleados.")
+        self.view.show_error(
+            "Error",
+            f"No se pudo cargar la información de empleados:\n\n{error}"
+        )
+
+    def _export_user_transactions(self, data: list, nom_usuario: str):
+        if not data:
+            return
+        safe_name = nom_usuario.strip().replace(" ", "_").replace(",", "").replace("/", "-")
+        if not safe_name:
+            safe_name = "empleado"
+        default_name = f"Transacciones_{safe_name}_{datetime.now().strftime('%Y-%m-%d_%H%M')}.xlsx"
+        path, _ = QFileDialog.getSaveFileName(
+            self.view, "Guardar transacciones del empleado", default_name, "Excel (*.xlsx)"
+        )
+        if not path:
+            return
+        try:
+            df = pd.DataFrame(data)
+            if "Fecha" in df.columns:
+                df["Fecha"] = pd.to_datetime(df["Fecha"]).dt.date
+            if "FechaCreacion" in df.columns:
+                df["FechaCreacion"] = pd.to_datetime(df["FechaCreacion"])
+            df.to_excel(path, index=False)
             self.view.show_info("Exportar", f"Archivo guardado exitosamente en:\n{path}")
         except Exception as exc:
             self.view.show_error("Error al exportar", str(exc))
