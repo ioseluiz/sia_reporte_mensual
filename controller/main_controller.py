@@ -59,6 +59,7 @@ class MainController:
         self.view.report_under_8_requested.connect(self._generate_report_under_8)
         self.view.search_transactions_requested.connect(self._open_search_transactions)
         self.view.user_transactions_requested.connect(self._open_user_transactions)
+        self.view.project_transactions_requested.connect(self._open_project_transactions)
 
     # ------------------------------------------------------------------
     # Arranque y configuración
@@ -525,6 +526,75 @@ class MainController:
             if "FechaCreacion" in df.columns:
                 df["FechaCreacion"] = pd.to_datetime(df["FechaCreacion"])
             df.to_excel(path, index=False)
+            self.view.show_info("Exportar", f"Archivo guardado exitosamente en:\n{path}")
+        except Exception as exc:
+            self.view.show_error("Error al exportar", str(exc))
+
+    # ------------------------------------------------------------------
+    # Transacciones por Proyecto (CodProyecto / SIA)
+    # ------------------------------------------------------------------
+
+    def _open_project_transactions(self):
+        from view.project_transactions_dialog import ProjectTransactionsDialog
+        start_date, end_date = self.view.date_start.date(), self.view.date_end.date()
+
+        dialog = ProjectTransactionsDialog(start_date, end_date, self.view)
+        dialog.search_requested.connect(self._run_project_transactions_search)
+        dialog.export_requested.connect(self._export_project_search_results)
+        self._project_dialog = dialog
+        dialog.exec()
+
+    def _run_project_transactions_search(self, cod_proyecto: str, start_date, end_date):
+        self._project_dialog.set_busy(True)
+        worker = _Worker(sia_model.search_project_transactions, cod_proyecto, start_date, end_date)
+        worker.signals.finished.connect(self._on_project_search_finished)
+        worker.signals.error.connect(self._on_project_search_error)
+        self._pool.start(worker)
+
+    def _on_project_search_finished(self, data: list):
+        if hasattr(self, "_project_dialog") and self._project_dialog.isVisible():
+            self._project_dialog.display_results(data)
+            self._project_dialog.set_busy(False)
+
+    def _on_project_search_error(self, error: str):
+        if hasattr(self, "_project_dialog") and self._project_dialog.isVisible():
+            self._project_dialog.set_busy(False)
+        self.view.show_error("Error de búsqueda", f"Ocurrió un error al consultar:\n\n{error}")
+
+    def _export_project_search_results(self, data: list, fmt: str):
+        if not data:
+            return
+        is_csv = fmt.lower() == "csv"
+        ext = "csv" if is_csv else "xlsx"
+        file_filter = "CSV (*.csv)" if is_csv else "Excel (*.xlsx)"
+        default_name = f"Transacciones_Proyecto_{datetime.now().strftime('%Y-%m-%d_%H%M')}.{ext}"
+        path, _ = QFileDialog.getSaveFileName(
+            self.view, "Guardar Transacciones por Proyecto", default_name, file_filter
+        )
+        if not path:
+            return
+        try:
+            df = pd.DataFrame(data)
+            if "Fecha" in df.columns:
+                df["Fecha"] = pd.to_datetime(df["Fecha"]).dt.date
+
+            columns_map = {
+                "Fecha": "Fecha",
+                "NomUsuario": "Usuario",
+                "CodProyecto": "Proyecto (SIA)",
+                "DescProyecto": "Descripción Proyecto",
+                "CodRamo": "CodRamo Emp.",
+                "HoraRegular": "Hora Regular",
+                "HoraExtra": "Hora Extra",
+                "HoraComp": "Hora Comp",
+            }
+            actual_cols = [c for c in columns_map.keys() if c in df.columns]
+            df = df[actual_cols].rename(columns=columns_map)
+
+            if is_csv:
+                df.to_csv(path, index=False, encoding="utf-8-sig")
+            else:
+                df.to_excel(path, index=False)
             self.view.show_info("Exportar", f"Archivo guardado exitosamente en:\n{path}")
         except Exception as exc:
             self.view.show_error("Error al exportar", str(exc))

@@ -62,6 +62,7 @@ class MainWindow(QMainWindow):
     report_under_8_requested = pyqtSignal()
     search_transactions_requested = pyqtSignal()
     user_transactions_requested = pyqtSignal()
+    project_transactions_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -107,6 +108,9 @@ class MainWindow(QMainWindow):
 
         action_user_trans = reportes_menu.addAction("Transacciones por Empleado (CodRamo)…")
         action_user_trans.triggered.connect(self.user_transactions_requested.emit)
+
+        action_project_trans = reportes_menu.addAction("Transacciones por Proyecto (SIA)…")
+        action_project_trans.triggered.connect(self.project_transactions_requested.emit)
 
     def _build_form_panel(self) -> QFrame:
         frame = QFrame()

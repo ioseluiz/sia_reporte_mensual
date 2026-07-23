@@ -248,3 +248,33 @@ def search_user_transactions(username: str, start_date, end_date) -> list[dict]:
     """
     cursor.execute(sql, (start_date, end_date, f"%{username}%"))
     return cursor.fetchall()
+
+
+def search_project_transactions(cod_proyecto: str, start_date, end_date) -> list[dict]:
+    """
+    Busca transacciones individuales de tblTransacciones filtradas por CodProyecto
+    (SIA) y rango de fechas. Trim en ambos lados porque CodProyecto puede tener
+    espacios al inicio en tblTransacciones. Retorna NomUsuario, CodProyecto,
+    DescProyecto, CodRamo (empleado), HoraRegular, HoraExtra, HoraComp, Fecha.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    sql = """
+        SELECT
+            u.NomUsuario,
+            LTRIM(RTRIM(t.CodProyecto)) AS CodProyecto,
+            CAST(p.DescProyecto AS NVARCHAR(MAX)) AS DescProyecto,
+            t.CodRamo,
+            t.HoraRegular,
+            t.HoraExtra,
+            t.HoraComp,
+            t.Fecha
+        FROM tblTransacciones t
+        INNER JOIN tblUsuarios u ON t.IP = u.IP
+        LEFT JOIN tblProyectos p ON LTRIM(RTRIM(t.CodProyecto)) = LTRIM(RTRIM(p.CodProyecto))
+        WHERE t.Fecha >= %s AND t.Fecha <= %s
+          AND LTRIM(RTRIM(t.CodProyecto)) LIKE %s
+        ORDER BY t.Fecha, u.NomUsuario
+    """
+    cursor.execute(sql, (start_date, end_date, f"%{cod_proyecto.strip()}%"))
+    return cursor.fetchall()
