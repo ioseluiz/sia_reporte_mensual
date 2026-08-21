@@ -63,6 +63,7 @@ class MainWindow(QMainWindow):
     search_transactions_requested = pyqtSignal()
     user_transactions_requested = pyqtSignal()
     project_transactions_requested = pyqtSignal()
+    project_hours_summary_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -111,6 +112,9 @@ class MainWindow(QMainWindow):
 
         action_project_trans = reportes_menu.addAction("Transacciones por Proyecto (SIA)…")
         action_project_trans.triggered.connect(self.project_transactions_requested.emit)
+
+        action_project_summary = reportes_menu.addAction("Resumen de Horas por Proyecto…")
+        action_project_summary.triggered.connect(self.project_hours_summary_requested.emit)
 
     def _build_form_panel(self) -> QFrame:
         frame = QFrame()

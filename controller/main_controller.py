@@ -60,6 +60,7 @@ class MainController:
         self.view.search_transactions_requested.connect(self._open_search_transactions)
         self.view.user_transactions_requested.connect(self._open_user_transactions)
         self.view.project_transactions_requested.connect(self._open_project_transactions)
+        self.view.project_hours_summary_requested.connect(self._open_project_hours_summary)
 
     # ------------------------------------------------------------------
     # Arranque y configuración
@@ -414,7 +415,9 @@ class MainController:
             df = pd.DataFrame(data)
             if "Fecha" in df.columns:
                 df["Fecha"] = pd.to_datetime(df["Fecha"]).dt.date
-            
+            if "FechaCreacion" in df.columns:
+                df["FechaCreacion"] = pd.to_datetime(df["FechaCreacion"])
+
             # Reordenar y renombrar columnas para que se exporte idéntico a la tabla
             columns_map = {
                 "NomUsuario": "Usuario",
@@ -423,11 +426,12 @@ class MainController:
                 "HoraRegular": "Hora Regular",
                 "HoraExtra": "Hora Extra",
                 "HoraComp": "Hora Comp",
-                "Fecha": "Fecha"
+                "Fecha": "Fecha",
+                "FechaCreacion": "Fecha Creación"
             }
             actual_cols = [c for c in columns_map.keys() if c in df.columns]
             df = df[actual_cols].rename(columns=columns_map)
-            
+
             df.to_excel(path, index=False)
             self.view.show_info("Exportar", f"Archivo guardado exitosamente en:\n{path}")
         except Exception as exc:
@@ -587,6 +591,166 @@ class MainController:
                 "HoraRegular": "Hora Regular",
                 "HoraExtra": "Hora Extra",
                 "HoraComp": "Hora Comp",
+            }
+            actual_cols = [c for c in columns_map.keys() if c in df.columns]
+            df = df[actual_cols].rename(columns=columns_map)
+
+            if is_csv:
+                df.to_csv(path, index=False, encoding="utf-8-sig")
+            else:
+                df.to_excel(path, index=False)
+            self.view.show_info("Exportar", f"Archivo guardado exitosamente en:\n{path}")
+        except Exception as exc:
+            self.view.show_error("Error al exportar", str(exc))
+
+    # ------------------------------------------------------------------
+    # Resumen de Horas por Proyecto (con drill-down al detalle)
+    # ------------------------------------------------------------------
+
+    def _open_project_hours_summary(self):
+        from view.project_hours_summary_dialog import ProjectHoursSummaryDialog
+
+        dialog = ProjectHoursSummaryDialog(self.view)
+        dialog.load_ramos_requested.connect(self._load_project_ramos)
+        dialog.query_requested.connect(self._run_project_hours_summary)
+        dialog.detail_requested.connect(self._open_project_detail)
+        dialog.export_requested.connect(self._export_project_summary)
+        self._project_summary_dialog = dialog
+
+        # Cargar ramos automáticamente al abrir
+        self._load_project_ramos()
+        dialog.exec()
+
+    def _load_project_ramos(self):
+        if hasattr(self, "_project_summary_dialog"):
+            self._project_summary_dialog.set_busy(True, "Cargando lista de ramos desde la base de datos…")
+        worker = _Worker(sia_model.get_project_ramos)
+        worker.signals.finished.connect(self._on_project_ramos_loaded)
+        worker.signals.error.connect(self._on_project_summary_error)
+        self._pool.start(worker)
+
+    def _on_project_ramos_loaded(self, ramos: list):
+        if hasattr(self, "_project_summary_dialog") and self._project_summary_dialog.isVisible():
+            self._project_summary_dialog.set_ramos(ramos)
+            self._project_summary_dialog.set_busy(
+                False,
+                f"{len(ramos)} ramos disponibles. Seleccione uno o más y pulse Consultar. "
+                f"Doble click en una fila para ver el detalle."
+            )
+
+    def _run_project_hours_summary(self, ramos: list):
+        self._project_summary_dialog.set_busy(
+            True,
+            f"Consultando resumen histórico de {len(ramos)} ramo(s)… "
+            f"Esto puede tomar unos segundos según la cantidad de datos."
+        )
+        worker = _Worker(sia_model.get_project_hours_summary, ramos)
+        worker.signals.finished.connect(self._on_project_hours_summary_finished)
+        worker.signals.error.connect(self._on_project_summary_error)
+        self._pool.start(worker)
+
+    def _on_project_hours_summary_finished(self, data: list):
+        if hasattr(self, "_project_summary_dialog") and self._project_summary_dialog.isVisible():
+            self._project_summary_dialog.display_results(data)
+            self._project_summary_dialog.set_busy(False)
+
+    def _on_project_summary_error(self, error: str):
+        if hasattr(self, "_project_summary_dialog") and self._project_summary_dialog.isVisible():
+            self._project_summary_dialog.set_busy(False)
+        self.view.show_error("Error", f"Ocurrió un error:\n\n{error}")
+
+    def _open_project_detail(self, cod_proyecto: str):
+        if hasattr(self, "_project_summary_dialog") and self._project_summary_dialog.isVisible():
+            self._project_summary_dialog.set_busy(
+                True,
+                f"Consultando detalle de transacciones del proyecto {cod_proyecto}…"
+            )
+        worker = _Worker(sia_model.get_project_hours_detail, cod_proyecto)
+        worker.signals.finished.connect(
+            lambda data, cp=cod_proyecto: self._on_project_detail_loaded(data, cp)
+        )
+        worker.signals.error.connect(self._on_project_summary_error)
+        self._pool.start(worker)
+
+    def _on_project_detail_loaded(self, data: list, cod_proyecto: str):
+        from view.project_detail_dialog import ProjectDetailDialog
+        # Restaurar UI del resumen antes de abrir el detalle
+        if hasattr(self, "_project_summary_dialog") and self._project_summary_dialog.isVisible():
+            self._project_summary_dialog.set_busy(False)
+            self._project_summary_dialog.set_status(
+                f"Detalle de {cod_proyecto}: {len(data)} registro(s)."
+            )
+        dialog = ProjectDetailDialog(
+            cod_proyecto, data,
+            parent=self._project_summary_dialog if hasattr(self, "_project_summary_dialog") else self.view
+        )
+        dialog.export_requested.connect(self._export_project_detail)
+        self._project_detail_dialog = dialog
+        dialog.exec()
+
+    def _export_project_summary(self, data: list, fmt: str):
+        if not data:
+            return
+        is_csv = fmt.lower() == "csv"
+        ext = "csv" if is_csv else "xlsx"
+        file_filter = "CSV (*.csv)" if is_csv else "Excel (*.xlsx)"
+        default_name = f"Resumen_Horas_Proyecto_{datetime.now().strftime('%Y-%m-%d_%H%M')}.{ext}"
+        path, _ = QFileDialog.getSaveFileName(
+            self._project_summary_dialog, "Guardar Resumen de Horas por Proyecto",
+            default_name, file_filter
+        )
+        if not path:
+            return
+        try:
+            df = pd.DataFrame(data)
+            columns_map = {
+                "CodProyecto": "CodProyecto (SIA)",
+                "NomProyecto": "Nombre Proyecto",
+                "CodRamo": "CodRamo",
+                "TotalHoraRegular": "Hora Regular",
+                "TotalHoraComp": "Hora Comp",
+                "TotalHoraExtra": "Hora Extra",
+                "TotalHoras": "Total",
+            }
+            actual_cols = [c for c in columns_map.keys() if c in df.columns]
+            df = df[actual_cols].rename(columns=columns_map)
+
+            if is_csv:
+                df.to_csv(path, index=False, encoding="utf-8-sig")
+            else:
+                df.to_excel(path, index=False)
+            self.view.show_info("Exportar", f"Archivo guardado exitosamente en:\n{path}")
+        except Exception as exc:
+            self.view.show_error("Error al exportar", str(exc))
+
+    def _export_project_detail(self, data: list, fmt: str, cod_proyecto: str):
+        if not data:
+            return
+        is_csv = fmt.lower() == "csv"
+        ext = "csv" if is_csv else "xlsx"
+        file_filter = "CSV (*.csv)" if is_csv else "Excel (*.xlsx)"
+        safe = cod_proyecto.strip().replace(" ", "_").replace("/", "-")
+        default_name = f"Detalle_{safe}_{datetime.now().strftime('%Y-%m-%d_%H%M')}.{ext}"
+        parent = self._project_detail_dialog if hasattr(self, "_project_detail_dialog") else self.view
+        path, _ = QFileDialog.getSaveFileName(
+            parent, f"Guardar Detalle — {cod_proyecto}", default_name, file_filter
+        )
+        if not path:
+            return
+        try:
+            df = pd.DataFrame(data)
+            if "Fecha" in df.columns:
+                df["Fecha"] = pd.to_datetime(df["Fecha"]).dt.date
+
+            columns_map = {
+                "Fecha": "Fecha",
+                "NomUsuario": "Usuario",
+                "CodRamo": "CodRamo Emp.",
+                "HoraRegular": "Hora Regular",
+                "HoraComp": "Hora Comp",
+                "HoraExtra": "Hora Extra",
+                "IP": "IP",
+                "ID": "ID",
             }
             actual_cols = [c for c in columns_map.keys() if c in df.columns]
             df = df[actual_cols].rename(columns=columns_map)

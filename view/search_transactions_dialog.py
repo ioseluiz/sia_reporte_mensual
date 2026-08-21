@@ -172,7 +172,8 @@ class SearchTransactionsDialog(QDialog):
             "HoraRegular": "Hora Regular",
             "HoraExtra": "Hora Extra",
             "HoraComp": "Hora Comp",
-            "Fecha": "Fecha"
+            "Fecha": "Fecha",
+            "FechaCreacion": "Fecha Creación"
         }
 
         actual_cols = [c for c in columns_map.keys() if c in data[0]]
@@ -188,10 +189,15 @@ class SearchTransactionsDialog(QDialog):
                         text = val.strftime("%d/%m/%Y")
                     except AttributeError:
                         text = str(val)
+                elif col == "FechaCreacion" and val is not None:
+                    try:
+                        text = val.strftime("%d/%m/%Y %H:%M")
+                    except AttributeError:
+                        text = str(val)
                 else:
                     text = "" if val is None else str(val)
                 item = QStandardItem(text)
-                
+
                 if col != "DescProyecto":
                     item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 item.setEditable(False)

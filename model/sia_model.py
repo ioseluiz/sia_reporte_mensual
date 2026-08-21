@@ -131,27 +131,55 @@ def get_collaborators() -> list[dict]:
 
 def get_users_under_8_hours(start_date, end_date) -> list[dict]:
     """
-    Devuelve los usuarios con menos de 8 horas regulares diarias de lunes a viernes,
-    excluyendo usuarios que inician con 'ZZ' o 'zz'.
+    Devuelve, por cada empleado de ramos INI y cada dia L-V del rango, las filas
+    con menos de 8 horas regulares registradas — incluyendo dias sin ningun
+    registro (HorasRegulares = 0.00). Parte de la lista maestra tblUsuarios
+    (CodRamo LIKE 'INI%%', excluyendo 'ZZ%%'/'zz%%') CROSS JOIN dias laborables,
+    con LEFT JOIN a las horas agregadas por (IP, Fecha), para no omitir empleados
+    que no llenaron SIA en un dia dado.
     """
     conn = get_connection()
     cursor = conn.cursor()
     sql = """
+        WITH DiasCal AS (
+            SELECT CAST(%s AS date) AS Dia
+            UNION ALL
+            SELECT DATEADD(day, 1, Dia)
+            FROM DiasCal
+            WHERE Dia < CAST(%s AS date)
+        ),
+        DiasLaborables AS (
+            SELECT Dia
+            FROM DiasCal
+            WHERE ((DATEPART(dw, Dia) + @@DATEFIRST - 2) % 7) < 5
+        ),
+        EmpleadosINI AS (
+            SELECT IP, NomUsuario, CodRamo
+            FROM tblUsuarios
+            WHERE NomUsuario NOT LIKE 'ZZ%' AND NomUsuario NOT LIKE 'zz%'
+              AND CodRamo LIKE 'INI%'
+        ),
+        HorasPorDia AS (
+            SELECT t.IP, CAST(t.Fecha AS date) AS Fecha,
+                   SUM(t.HoraRegular) AS Horas
+            FROM tblTransacciones t
+            WHERE t.Fecha >= %s AND t.Fecha <= %s
+            GROUP BY t.IP, CAST(t.Fecha AS date)
+        )
         SELECT
-            u.NomUsuario,
-            u.CodRamo,
-            t.Fecha,
-            ROUND(SUM(t.HoraRegular), 2) AS HorasRegulares
-        FROM tblTransacciones t
-        INNER JOIN tblUsuarios u ON t.IP = u.IP
-        WHERE t.Fecha >= %s AND t.Fecha <= %s
-          AND u.NomUsuario NOT LIKE 'ZZ%' AND u.NomUsuario NOT LIKE 'zz%'
-          AND ((DATEPART(dw, t.Fecha) + @@DATEFIRST - 2) % 7) < 5
-        GROUP BY u.NomUsuario, u.CodRamo, t.Fecha
-        HAVING ROUND(SUM(t.HoraRegular), 2) < 8
-        ORDER BY u.CodRamo, u.NomUsuario, t.Fecha
+            e.NomUsuario,
+            e.CodRamo,
+            d.Dia AS Fecha,
+            ROUND(ISNULL(h.Horas, 0), 2) AS HorasRegulares
+        FROM EmpleadosINI e
+        CROSS JOIN DiasLaborables d
+        LEFT JOIN HorasPorDia h
+            ON h.IP = e.IP AND h.Fecha = d.Dia
+        WHERE ROUND(ISNULL(h.Horas, 0), 2) < 8
+        ORDER BY e.CodRamo, e.NomUsuario, d.Dia
+        OPTION (MAXRECURSION 32767)
     """
-    cursor.execute(sql, (start_date, end_date))
+    cursor.execute(sql, (start_date, end_date, start_date, end_date))
     return cursor.fetchall()
 
 
@@ -226,7 +254,8 @@ def get_all_transactions_by_ip(ip: str, start_date, end_date) -> list[dict]:
 def search_user_transactions(username: str, start_date, end_date) -> list[dict]:
     """
     Busca transacciones individuales filtradas por parte del nombre de usuario y un rango de fechas.
-    Retorna NomUsuario, CodProyecto, DescProyecto, HoraRegular, HoraExtra, HoraComp y Fecha.
+    Retorna NomUsuario, CodProyecto, DescProyecto, HoraRegular, HoraExtra, HoraComp,
+    Fecha (de la transaccion) y FechaCreacion (cuando se ingreso el registro).
     """
     conn = get_connection()
     cursor = conn.cursor()
@@ -238,7 +267,8 @@ def search_user_transactions(username: str, start_date, end_date) -> list[dict]:
             t.HoraRegular,
             t.HoraExtra,
             t.HoraComp,
-            t.Fecha
+            t.Fecha,
+            t.FechaCreacion
         FROM tblTransacciones t
         INNER JOIN tblUsuarios u ON t.IP = u.IP
         LEFT JOIN tblProyectos p ON t.CodProyecto = p.CodProyecto
@@ -277,4 +307,79 @@ def search_project_transactions(cod_proyecto: str, start_date, end_date) -> list
         ORDER BY t.Fecha, u.NomUsuario
     """
     cursor.execute(sql, (start_date, end_date, f"%{cod_proyecto.strip()}%"))
+    return cursor.fetchall()
+
+
+def get_project_ramos() -> list[str]:
+    """
+    Devuelve los CodRamo distintos de tblProyectos (ramo del proyecto, no del empleado).
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT DISTINCT CodRamo
+        FROM tblProyectos
+        WHERE CodRamo IS NOT NULL
+        ORDER BY CodRamo
+    """)
+    return [row["CodRamo"] for row in cursor.fetchall()]
+
+
+def get_project_hours_summary(ramos: list[str]) -> list[dict]:
+    """
+    Resumen por proyecto: totales de HoraRegular, HoraComp, HoraExtra y su suma total,
+    considerando TODAS las transacciones historicas (sin filtro de fecha).
+    Incluye TODOS los proyectos de los ramos seleccionados aunque no tengan
+    transacciones (LEFT JOIN).
+    """
+    if not ramos:
+        return []
+
+    placeholders = ", ".join(["%s" for _ in ramos])
+    sql = f"""
+        SELECT
+            LTRIM(RTRIM(p.CodProyecto)) AS CodProyecto,
+            p.NomProyecto,
+            p.CodRamo,
+            ISNULL(SUM(t.HoraRegular), 0) AS TotalHoraRegular,
+            ISNULL(SUM(t.HoraComp), 0)   AS TotalHoraComp,
+            ISNULL(SUM(t.HoraExtra), 0)  AS TotalHoraExtra,
+            ISNULL(SUM(ISNULL(t.HoraRegular,0) + ISNULL(t.HoraComp,0) + ISNULL(t.HoraExtra,0)), 0) AS TotalHoras
+        FROM tblProyectos p
+        LEFT JOIN tblTransacciones t
+            ON LTRIM(RTRIM(t.CodProyecto)) = LTRIM(RTRIM(p.CodProyecto))
+        WHERE p.CodRamo IN ({placeholders})
+        GROUP BY p.CodProyecto, p.NomProyecto, p.CodRamo
+        ORDER BY p.CodProyecto
+    """
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(sql, list(ramos))
+    return cursor.fetchall()
+
+
+def get_project_hours_detail(cod_proyecto: str) -> list[dict]:
+    """
+    Detalle de TODAS las transacciones para UN CodProyecto exacto (con trim en la
+    comparacion), sin filtro de fecha. Sustenta los totales del resumen.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    sql = """
+        SELECT
+            t.Fecha,
+            u.NomUsuario,
+            t.CodRamo,
+            t.HoraRegular,
+            t.HoraComp,
+            t.HoraExtra,
+            t.IP,
+            t.ID
+        FROM tblTransacciones t
+        INNER JOIN tblUsuarios u ON t.IP = u.IP
+        WHERE LTRIM(RTRIM(t.CodProyecto)) = LTRIM(RTRIM(%s))
+        ORDER BY t.Fecha, u.NomUsuario
+    """
+    cursor.execute(sql, (cod_proyecto,))
     return cursor.fetchall()
