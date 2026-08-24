@@ -1,0 +1,12 @@
+{
+  "INICIC": {
+    "nombre": "Ing. Vielka Quijada",
+    "email": "vquijada@pancanal.com",
+    "cc": ["rguardia@pancanal.com", "mbarrios@pancanal.com"]
+  },
+  "IACA": {
+    "nombre": "",
+    "email": "",
+    "cc": []
+  }
+}

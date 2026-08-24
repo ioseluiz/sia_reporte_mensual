@@ -3,3 +3,4 @@ pymssql
 python-dotenv
 pandas
 openpyxl
+pywin32

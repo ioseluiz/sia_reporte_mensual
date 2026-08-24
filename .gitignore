@@ -1,6 +1,9 @@
 # Credenciales — nunca versionar
 .env
 
+# Mapeo de supervisores con correos reales (usar supervisores.example.json como plantilla)
+config/supervisores.json
+
 # Entorno virtual
 venv/
 

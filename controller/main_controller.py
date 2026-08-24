@@ -1,12 +1,18 @@
 from PyQt6.QtCore import QObject, QRunnable, QThreadPool, pyqtSignal, pyqtSlot, QTimer
 from PyQt6.QtWidgets import QFileDialog, QDialog
 from datetime import datetime
+import logging
+import tempfile
+from pathlib import Path
 
 import pandas as pd
 
 from model import sia_model
 from view.main_window import MainWindow
 from view.detail_dialog import DetailDialog
+from view.report_preview_dialog import ReportPreviewDialog
+
+log = logging.getLogger(__name__)
 
 
 class _Signals(QObject):
@@ -308,27 +314,16 @@ class MainController:
             self.view.show_error("Validación", "La fecha inicial no puede ser mayor que la fecha final.")
             return
 
-        default_name = f"Reporte_Horas_Menores_8_{datetime.now().strftime('%Y-%m-%d_%H%M')}.xlsx"
-        path, _ = QFileDialog.getSaveFileName(
-            self.view,
-            "Guardar Reporte Horas (< 8h)",
-            default_name,
-            "Archivos de Excel (*.xlsx)"
-        )
-        if not path:
-            return
-
+        self._report_periodo = (start_date, end_date)
         self._set_busy(True)
         self.view.set_status("Consultando transacciones diarias menores a 8 horas...")
 
         worker = _Worker(sia_model.get_users_under_8_hours, start_date, end_date)
-        worker.signals.finished.connect(
-            lambda data, p=path: self._on_report_under_8_finished(data, p)
-        )
+        worker.signals.finished.connect(self._on_report_under_8_finished)
         worker.signals.error.connect(self._on_report_under_8_error)
         self._pool.start(worker)
 
-    def _on_report_under_8_finished(self, data: list, path: str):
+    def _on_report_under_8_finished(self, data: list):
         self._set_busy(False)
         if not data:
             self.view.show_info(
@@ -338,36 +333,14 @@ class MainController:
             self.view.set_status("Generación de reporte cancelada: sin datos.")
             return
 
-        try:
-            df = pd.DataFrame(data)
-
-            # Formatear la fecha
-            if "Fecha" in df.columns:
-                df["Fecha"] = pd.to_datetime(df["Fecha"]).dt.date
-
-            # Renombrar columnas
-            df_rename = df.rename(columns={
-                "NomUsuario": "Usuario",
-                "CodRamo": "CodRamo",
-                "Fecha": "Fecha",
-                "HorasRegulares": "Horas Regulares"
-            })
-
-            # Guardar en hojas separadas por CodRamo
-            with pd.ExcelWriter(path, engine="openpyxl") as writer:
-                for ramo, group in df_rename.groupby("CodRamo"):
-                    sheet_name = str(ramo).strip()[:30]
-                    for char in [":", "\\", "/", "?", "*", "[", "]"]:
-                        sheet_name = sheet_name.replace(char, "")
-                    if not sheet_name:
-                        sheet_name = "Sin_Ramo"
-                    group.to_excel(writer, sheet_name=sheet_name, index=False)
-
-            self.view.set_status(f"Reporte de Horas L-V generado: {path}")
-            self.view.show_info("Reporte Horas L-V", f"Reporte guardado exitosamente en:\n{path}")
-        except Exception as exc:
-            self.view.show_error("Error al generar reporte", f"No se pudo escribir el archivo Excel:\n{exc}")
-            self.view.set_status("Error en la generación del reporte.")
+        dialog = ReportPreviewDialog(data, self._report_periodo, parent=self.view)
+        dialog.descargar_excel.connect(self._descargar_excel_reporte)
+        dialog.crear_borradores.connect(self._crear_borradores_reporte)
+        self._report_dialog = dialog
+        self.view.set_status(
+            f"{len(data)} registros cargados. Revise la selección y elija exportar Excel o crear borradores."
+        )
+        dialog.exec()
 
     def _on_report_under_8_error(self, error: str):
         self._set_busy(False)
@@ -376,6 +349,115 @@ class MainController:
             "Error al generar reporte",
             f"Ocurrió un error al obtener la información de la base de datos:\n\n{error}"
         )
+
+    def _descargar_excel_reporte(self, payload: dict):
+        if not payload:
+            return
+        default_name = f"Reporte_Horas_Menores_8_{datetime.now().strftime('%Y-%m-%d_%H%M')}.xlsx"
+        parent = self._report_dialog if hasattr(self, "_report_dialog") else self.view
+        path, _ = QFileDialog.getSaveFileName(
+            parent, "Guardar Reporte Horas (< 8h)", default_name, "Archivos de Excel (*.xlsx)"
+        )
+        if not path:
+            return
+        try:
+            with pd.ExcelWriter(path, engine="openpyxl") as writer:
+                for ramo in sorted(payload.keys()):
+                    df = pd.DataFrame(payload[ramo]["filas"])
+                    if "Fecha" in df.columns:
+                        df["Fecha"] = pd.to_datetime(df["Fecha"]).dt.date
+                    df = df.rename(columns={
+                        "NomUsuario": "Usuario",
+                        "HorasRegulares": "Horas Regulares",
+                    })
+                    sheet_name = self._sanitize_sheet_name(ramo)
+                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+            self.view.set_status(f"Reporte de Horas L-V generado: {path}")
+            self._show_info_on_dialog("Reporte Horas L-V", f"Reporte guardado exitosamente en:\n{path}")
+        except Exception as exc:
+            log.exception("Error al escribir Excel del reporte <8h")
+            self._show_error_on_dialog("Error al generar reporte", f"No se pudo escribir el archivo Excel:\n{exc}")
+
+    def _crear_borradores_reporte(self, payload: dict):
+        from core import email_outlook, template_render
+        from core.email_outlook import OutlookNoDisponibleError
+
+        if not payload:
+            return
+
+        periodo_txt = template_render.format_periodo(*self._report_periodo)
+        asunto = template_render.build_asunto(periodo_txt)
+
+        creados, fallidos = 0, []
+        tmpdir = Path(tempfile.gettempdir())
+        for ramo in sorted(payload.keys()):
+            entry = payload[ramo]
+            if not entry["enviar_correo"]:
+                continue
+            sup = entry["supervisor"]
+            filas = entry["filas"]
+            if not filas or not sup.get("email"):
+                continue
+
+            adjunto = tmpdir / f"Reporte_{self._sanitize_sheet_name(ramo)}_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+            try:
+                df = pd.DataFrame(filas)
+                if "Fecha" in df.columns:
+                    df["Fecha"] = pd.to_datetime(df["Fecha"]).dt.date
+                df = df.rename(columns={
+                    "NomUsuario": "Usuario",
+                    "HorasRegulares": "Horas Regulares",
+                })
+                df.to_excel(adjunto, index=False, sheet_name=self._sanitize_sheet_name(ramo))
+            except Exception as exc:
+                log.exception("Error creando adjunto para %s", ramo)
+                fallidos.append(f"{ramo}: no se pudo crear el adjunto ({exc})")
+                continue
+
+            html = template_render.render_correo(
+                supervisor_nombre=sup["nombre"],
+                periodo=periodo_txt,
+                filas=filas,
+            )
+            try:
+                email_outlook.crear_borrador(
+                    to=sup["email"],
+                    cc=sup["cc"],
+                    subject=asunto,
+                    html_body=html,
+                    attachments=[adjunto],
+                )
+                creados += 1
+            except OutlookNoDisponibleError as exc:
+                log.warning("Outlook no disponible: %s", exc)
+                self._show_error_on_dialog(
+                    "Outlook no disponible",
+                    f"{exc}\n\nAbra Outlook y reintente. La descarga de Excel sigue disponible."
+                )
+                return  # no seguimos si Outlook está caído
+
+        msg = f"Se abrieron {creados} borrador(es) en Outlook."
+        if fallidos:
+            msg += "\n\nAdvertencias:\n- " + "\n- ".join(fallidos)
+        self._show_info_on_dialog("Borradores creados", msg)
+        self.view.set_status(f"{creados} borrador(es) de correo creado(s) en Outlook.")
+
+    @staticmethod
+    def _sanitize_sheet_name(ramo: str) -> str:
+        name = str(ramo).strip()[:30]
+        for char in [":", "\\", "/", "?", "*", "[", "]"]:
+            name = name.replace(char, "")
+        return name or "Sin_Ramo"
+
+    def _show_info_on_dialog(self, title: str, message: str):
+        parent = self._report_dialog if hasattr(self, "_report_dialog") and self._report_dialog.isVisible() else self.view
+        from PyQt6.QtWidgets import QMessageBox
+        QMessageBox.information(parent, title, message)
+
+    def _show_error_on_dialog(self, title: str, message: str):
+        parent = self._report_dialog if hasattr(self, "_report_dialog") and self._report_dialog.isVisible() else self.view
+        from PyQt6.QtWidgets import QMessageBox
+        QMessageBox.critical(parent, title, message)
 
     def _open_search_transactions(self):
         from view.search_transactions_dialog import SearchTransactionsDialog
