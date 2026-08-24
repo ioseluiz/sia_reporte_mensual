@@ -5,6 +5,7 @@ Debe llamarse desde el hilo principal (COM no es thread-safe con MTA).
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Iterable
 
@@ -13,6 +14,25 @@ log = logging.getLogger(__name__)
 
 class OutlookNoDisponibleError(RuntimeError):
     """Outlook no está instalado o no se pudo iniciar via COM."""
+
+
+_BODY_OPEN_RE = re.compile(r"<body\b[^>]*>", re.IGNORECASE)
+_BODY_INNER_RE = re.compile(r"<body\b[^>]*>(.*)</body\s*>", re.IGNORECASE | re.DOTALL)
+
+
+def _mezclar_con_firma(html_body: str, html_con_firma: str) -> str:
+    """Inserta el contenido de html_body al inicio del <body> del HTMLBody
+    que Outlook rellenó con la firma default. La firma queda al final.
+    """
+    inner = _BODY_INNER_RE.search(html_body)
+    inner_content = inner.group(1) if inner else html_body
+
+    match = _BODY_OPEN_RE.search(html_con_firma)
+    if not match:
+        # Sin <body> reconocible: fallback conservador, respeta la firma abajo
+        return inner_content + html_con_firma
+    idx = match.end()
+    return html_con_firma[:idx] + inner_content + html_con_firma[idx:]
 
 
 def crear_borrador(
@@ -24,7 +44,9 @@ def crear_borrador(
 ):
     """Crea un borrador de Outlook y lo abre (no lo envía).
 
-    Retorna el MailItem para que el usuario decida enviarlo o descartarlo.
+    Preserva la firma default de Outlook (incluyendo imágenes embebidas vía CID)
+    accediendo a GetInspector antes de mezclar el cuerpo. Retorna el MailItem
+    para que el usuario decida enviarlo o descartarlo.
     """
     try:
         import win32com.client as com
@@ -48,7 +70,15 @@ def crear_borrador(
             cc_str = "; ".join(cc) if isinstance(cc, (list, tuple)) else str(cc)
             mail.CC = cc_str
         mail.Subject = subject
-        mail.HTMLBody = html_body
+
+        # Dispara la inserción de la firma default de Outlook en HTMLBody.
+        # Sin esto, el HTMLBody que asignamos sobrescribe todo y la firma
+        # (con su imagen embebida vía CID) nunca aparece.
+        _ = mail.GetInspector
+        firma_html = mail.HTMLBody or ""
+
+        mail.HTMLBody = _mezclar_con_firma(html_body, firma_html)
+
         for path in (attachments or []):
             mail.Attachments.Add(str(path))
         mail.Display(False)
