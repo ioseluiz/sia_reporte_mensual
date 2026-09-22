@@ -383,3 +383,129 @@ def get_project_hours_detail(cod_proyecto: str) -> list[dict]:
     """
     cursor.execute(sql, (cod_proyecto,))
     return cursor.fetchall()
+
+
+def get_all_projects(only_active: bool = True) -> list[dict]:
+    """
+    Lista todos los proyectos de tblProyectos con conteo de integrantes,
+    para poder navegar del proyecto a sus integrantes. Si only_active=True,
+    filtra por ProyectoActivo = 1.
+    """
+    sql = """
+        SELECT
+            LTRIM(RTRIM(p.CodProyecto)) AS CodProyecto,
+            p.NomProyecto,
+            p.CodRamo,
+            p.CodProyectoOracle,
+            p.FechaRec,
+            p.Abierto,
+            p.ProyectoActivo,
+            (
+                SELECT COUNT(*) FROM tblIntegrantes i
+                WHERE LTRIM(RTRIM(i.CodProyecto)) = LTRIM(RTRIM(p.CodProyecto))
+            ) AS NumIntegrantes
+        FROM tblProyectos p
+    """
+    if only_active:
+        sql += " WHERE p.ProyectoActivo = 1"
+    sql += " ORDER BY p.CodRamo, p.CodProyecto"
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(sql)
+    return cursor.fetchall()
+
+
+def get_project_members(cod_proyecto: str) -> list[dict]:
+    """
+    Devuelve TODAS las columnas de tblIntegrantes para un proyecto exacto
+    (con LTRIM/RTRIM porque CodProyecto puede tener espacios). Ademas,
+    intenta unir con tblUsuarios por IP si dicha columna existe, para
+    incluir NomUsuario legible. Cae al SELECT plano si el join falla.
+    """
+    conn = get_connection()
+    param = (cod_proyecto,)
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT i.*, u.NomUsuario
+            FROM tblIntegrantes i
+            LEFT JOIN tblUsuarios u ON i.IP = u.IP
+            WHERE LTRIM(RTRIM(i.CodProyecto)) = LTRIM(RTRIM(%s))
+        """, param)
+        return cursor.fetchall()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT *
+            FROM tblIntegrantes
+            WHERE LTRIM(RTRIM(CodProyecto)) = LTRIM(RTRIM(%s))
+        """, param)
+        return cursor.fetchall()
+
+
+def get_projects_without_members(only_active: bool = True) -> list[dict]:
+    """
+    Devuelve los proyectos de tblProyectos que NO tienen ningun integrante
+    registrado en tblIntegrantes. Si only_active=True (por defecto), filtra
+    ademas por ProyectoActivo = 1.
+
+    Sirve para detectar proyectos huerfanos (sin responsables asignados).
+    """
+    sql = """
+        SELECT
+            LTRIM(RTRIM(p.CodProyecto)) AS CodProyecto,
+            p.NomProyecto,
+            p.CodRamo,
+            p.CodProyectoOracle,
+            p.FechaRec,
+            p.Abierto,
+            p.ProyectoActivo
+        FROM tblProyectos p
+        WHERE NOT EXISTS (
+            SELECT 1 FROM tblIntegrantes i
+            WHERE LTRIM(RTRIM(i.CodProyecto)) = LTRIM(RTRIM(p.CodProyecto))
+        )
+    """
+    if only_active:
+        sql += " AND p.ProyectoActivo = 1"
+    sql += " ORDER BY p.CodRamo, p.CodProyecto"
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(sql)
+    return cursor.fetchall()
+
+
+def get_siadb_schema() -> list[dict]:
+    """
+    Devuelve una fila por columna de cada tabla de usuario del SIADB.
+    Excluye vistas y objetos de sistema (TABLE_TYPE = 'BASE TABLE') y tablas
+    internas como sysdiagrams. Sirve como catalogo del esquema para analistas.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT
+            c.TABLE_SCHEMA,
+            c.TABLE_NAME,
+            c.ORDINAL_POSITION,
+            c.COLUMN_NAME,
+            c.DATA_TYPE,
+            c.CHARACTER_MAXIMUM_LENGTH,
+            c.NUMERIC_PRECISION,
+            c.NUMERIC_SCALE,
+            c.IS_NULLABLE
+        FROM INFORMATION_SCHEMA.COLUMNS c
+        INNER JOIN INFORMATION_SCHEMA.TABLES t
+            ON t.TABLE_SCHEMA = c.TABLE_SCHEMA
+           AND t.TABLE_NAME = c.TABLE_NAME
+        WHERE t.TABLE_TYPE = 'BASE TABLE'
+          AND t.TABLE_NAME <> 'sysdiagrams'
+        ORDER BY c.TABLE_SCHEMA, c.TABLE_NAME, c.ORDINAL_POSITION
+    """)
+    return cursor.fetchall()

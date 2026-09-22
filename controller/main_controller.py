@@ -67,6 +67,9 @@ class MainController:
         self.view.user_transactions_requested.connect(self._open_user_transactions)
         self.view.project_transactions_requested.connect(self._open_project_transactions)
         self.view.project_hours_summary_requested.connect(self._open_project_hours_summary)
+        self.view.schema_report_requested.connect(self._open_schema_report)
+        self.view.projects_without_members_requested.connect(self._open_projects_without_members)
+        self.view.projects_list_requested.connect(self._open_projects_list)
 
     # ------------------------------------------------------------------
     # Arranque y configuración
@@ -435,6 +438,13 @@ class MainController:
                     f"{exc}\n\nAbra Outlook y reintente. La descarga de Excel sigue disponible."
                 )
                 return  # no seguimos si Outlook está caído
+            except Exception as exc:
+                # Cualquier otra excepción (COM proxy, WindowsError, etc.):
+                # loguear con traceback y continuar con el siguiente ramo en vez
+                # de dejar que la excepción cierre el proceso desde el .exe.
+                log.exception("Error inesperado al crear borrador para %s", ramo)
+                fallidos.append(f"{ramo}: {exc}")
+                continue
 
         msg = f"Se abrieron {creados} borrador(es) en Outlook."
         if fallidos:
@@ -844,6 +854,322 @@ class MainController:
             self.view.show_info("Exportar", f"Archivo guardado exitosamente en:\n{path}")
         except Exception as exc:
             self.view.show_error("Error al exportar", str(exc))
+
+    # ------------------------------------------------------------------
+    # Inventario de tablas del SIADB
+    # ------------------------------------------------------------------
+
+    def _open_schema_report(self):
+        from view.schema_report_dialog import SchemaReportDialog
+
+        dialog = SchemaReportDialog(self.view)
+        dialog.load_requested.connect(self._load_schema)
+        dialog.export_requested.connect(self._export_schema)
+        self._schema_dialog = dialog
+
+        self._load_schema()
+        dialog.exec()
+
+    def _load_schema(self):
+        if not hasattr(self, "_schema_dialog"):
+            return
+        self._schema_dialog.set_busy(True, "Consultando catálogo del SIADB…")
+        worker = _Worker(sia_model.get_siadb_schema)
+        worker.signals.finished.connect(self._on_schema_loaded)
+        worker.signals.error.connect(self._on_schema_error)
+        self._pool.start(worker)
+
+    def _on_schema_loaded(self, data: list):
+        if not hasattr(self, "_schema_dialog"):
+            return
+        self._schema_dialog.display_results(data)
+        self._schema_dialog.set_busy(False)
+
+    def _on_schema_error(self, error: str):
+        if hasattr(self, "_schema_dialog") and self._schema_dialog.isVisible():
+            self._schema_dialog.set_busy(False)
+            self._schema_dialog.show_error(
+                "Error al consultar catálogo",
+                f"No se pudo obtener el inventario del SIADB:\n\n{error}"
+            )
+
+    def _export_schema(self, data: list):
+        if not data:
+            return
+        default_name = f"SIADB_Esquema_{datetime.now().strftime('%Y-%m-%d_%H%M')}.xlsx"
+        parent = self._schema_dialog if hasattr(self, "_schema_dialog") else self.view
+        path, _ = QFileDialog.getSaveFileName(
+            parent, "Guardar inventario de tablas", default_name,
+            "Archivos de Excel (*.xlsx)"
+        )
+        if not path:
+            return
+        try:
+            df = pd.DataFrame(data)
+            cols_hoja = [
+                "ORDINAL_POSITION", "COLUMN_NAME", "DATA_TYPE",
+                "CHARACTER_MAXIMUM_LENGTH", "NUMERIC_PRECISION",
+                "NUMERIC_SCALE", "IS_NULLABLE",
+            ]
+            rename = {
+                "ORDINAL_POSITION": "Pos",
+                "COLUMN_NAME": "Columna",
+                "DATA_TYPE": "Tipo",
+                "CHARACTER_MAXIMUM_LENGTH": "Longitud",
+                "NUMERIC_PRECISION": "Precisión",
+                "NUMERIC_SCALE": "Escala",
+                "IS_NULLABLE": "Nullable",
+            }
+            with pd.ExcelWriter(path, engine="openpyxl") as writer:
+                indice = (
+                    df.groupby(["TABLE_SCHEMA", "TABLE_NAME"])
+                      .size()
+                      .reset_index(name="Columnas")
+                      .rename(columns={"TABLE_SCHEMA": "Esquema", "TABLE_NAME": "Tabla"})
+                      .sort_values(["Esquema", "Tabla"])
+                )
+                indice.to_excel(writer, sheet_name="Índice", index=False)
+
+                usadas: set[str] = set()
+                for (schema, tabla), grupo in df.groupby(["TABLE_SCHEMA", "TABLE_NAME"]):
+                    base = tabla if schema == "dbo" else f"{schema}.{tabla}"
+                    sheet = self._sanitize_sheet_name(base)
+                    original = sheet
+                    n = 2
+                    while sheet in usadas:
+                        suffix = f"_{n}"
+                        sheet = (original[: 31 - len(suffix)] + suffix)
+                        n += 1
+                    usadas.add(sheet)
+
+                    presentes = [c for c in cols_hoja if c in grupo.columns]
+                    grupo[presentes].rename(columns=rename).to_excel(
+                        writer, sheet_name=sheet, index=False
+                    )
+            self._schema_dialog.show_info(
+                "Exportación completada",
+                f"Inventario guardado en:\n{path}"
+            )
+        except Exception as exc:
+            log.exception("Error al escribir Excel del esquema SIADB")
+            self._schema_dialog.show_error(
+                "Error al exportar",
+                f"No se pudo escribir el archivo Excel:\n{exc}"
+            )
+
+    # ------------------------------------------------------------------
+    # Proyectos sin Integrantes
+    # ------------------------------------------------------------------
+
+    def _open_projects_without_members(self):
+        from view.projects_without_members_dialog import ProjectsWithoutMembersDialog
+
+        dialog = ProjectsWithoutMembersDialog(self.view)
+        dialog.load_requested.connect(self._load_projects_without_members)
+        dialog.export_requested.connect(self._export_projects_without_members)
+        self._nm_dialog = dialog
+
+        self._load_projects_without_members(True)
+        dialog.exec()
+
+    def _load_projects_without_members(self, only_active: bool):
+        if not hasattr(self, "_nm_dialog"):
+            return
+        self._nm_dialog.set_busy(True, "Consultando proyectos sin integrantes…")
+        worker = _Worker(sia_model.get_projects_without_members, only_active)
+        worker.signals.finished.connect(self._on_projects_without_members_loaded)
+        worker.signals.error.connect(self._on_projects_without_members_error)
+        self._pool.start(worker)
+
+    def _on_projects_without_members_loaded(self, data: list):
+        if not hasattr(self, "_nm_dialog"):
+            return
+        self._nm_dialog.display_results(data)
+        self._nm_dialog.set_busy(False)
+
+    def _on_projects_without_members_error(self, error: str):
+        if hasattr(self, "_nm_dialog") and self._nm_dialog.isVisible():
+            self._nm_dialog.set_busy(False)
+            self._nm_dialog.show_error(
+                "Error al consultar",
+                f"No se pudo obtener la lista de proyectos sin integrantes:\n\n{error}"
+            )
+
+    def _export_projects_without_members(self, data: list):
+        if not data:
+            return
+        default_name = f"Proyectos_Sin_Integrantes_{datetime.now().strftime('%Y-%m-%d_%H%M')}.xlsx"
+        parent = self._nm_dialog if hasattr(self, "_nm_dialog") else self.view
+        path, _ = QFileDialog.getSaveFileName(
+            parent, "Guardar reporte", default_name,
+            "Archivos de Excel (*.xlsx)"
+        )
+        if not path:
+            return
+        try:
+            df = pd.DataFrame(data)
+            for col in ("Abierto", "ProyectoActivo"):
+                if col in df.columns:
+                    df[col] = df[col].map(lambda v: "" if v is None else ("Sí" if v else "No"))
+            if "FechaRec" in df.columns:
+                df["FechaRec"] = pd.to_datetime(df["FechaRec"], errors="coerce").dt.date
+            df.rename(columns={
+                "CodProyecto": "Cod. Proyecto",
+                "NomProyecto": "Nombre",
+                "CodRamo": "Ramo",
+                "CodProyectoOracle": "Oracle",
+                "FechaRec": "Fecha Recepción",
+                "ProyectoActivo": "Activo",
+            }, inplace=True)
+            df.to_excel(path, index=False)
+            self._nm_dialog.show_info(
+                "Exportación completada",
+                f"Archivo guardado en:\n{path}"
+            )
+        except Exception as exc:
+            log.exception("Error al exportar proyectos sin integrantes")
+            self._nm_dialog.show_error(
+                "Error al exportar",
+                f"No se pudo escribir el archivo Excel:\n{exc}"
+            )
+
+    # ------------------------------------------------------------------
+    # Listado de Proyectos + drill-down a Integrantes
+    # ------------------------------------------------------------------
+
+    def _open_projects_list(self):
+        from view.projects_dialog import ProjectsDialog
+
+        dialog = ProjectsDialog(self.view)
+        dialog.load_requested.connect(self._load_all_projects)
+        dialog.export_requested.connect(self._export_projects_list)
+        dialog.members_requested.connect(self._open_project_members)
+        self._projects_dialog = dialog
+
+        self._load_all_projects(True)
+        dialog.exec()
+
+    def _load_all_projects(self, only_active: bool):
+        if not hasattr(self, "_projects_dialog"):
+            return
+        self._projects_dialog.set_busy(True, "Consultando lista de proyectos…")
+        worker = _Worker(sia_model.get_all_projects, only_active)
+        worker.signals.finished.connect(self._on_all_projects_loaded)
+        worker.signals.error.connect(self._on_all_projects_error)
+        self._pool.start(worker)
+
+    def _on_all_projects_loaded(self, data: list):
+        if not hasattr(self, "_projects_dialog"):
+            return
+        self._projects_dialog.display_results(data)
+        self._projects_dialog.set_busy(False)
+
+    def _on_all_projects_error(self, error: str):
+        if hasattr(self, "_projects_dialog") and self._projects_dialog.isVisible():
+            self._projects_dialog.set_busy(False)
+            self._projects_dialog.show_error(
+                "Error al consultar",
+                f"No se pudo obtener el listado de proyectos:\n\n{error}"
+            )
+
+    def _export_projects_list(self, data: list):
+        if not data:
+            return
+        default_name = f"Listado_Proyectos_{datetime.now().strftime('%Y-%m-%d_%H%M')}.xlsx"
+        parent = self._projects_dialog if hasattr(self, "_projects_dialog") else self.view
+        path, _ = QFileDialog.getSaveFileName(
+            parent, "Guardar listado de proyectos", default_name,
+            "Archivos de Excel (*.xlsx)"
+        )
+        if not path:
+            return
+        try:
+            df = pd.DataFrame(data)
+            for col in ("Abierto", "ProyectoActivo"):
+                if col in df.columns:
+                    df[col] = df[col].map(lambda v: "" if v is None else ("Sí" if v else "No"))
+            if "FechaRec" in df.columns:
+                df["FechaRec"] = pd.to_datetime(df["FechaRec"], errors="coerce").dt.date
+            df.rename(columns={
+                "CodProyecto": "Cod. Proyecto",
+                "NomProyecto": "Nombre",
+                "CodRamo": "Ramo",
+                "CodProyectoOracle": "Oracle",
+                "FechaRec": "Fecha Recepción",
+                "NumIntegrantes": "# Integrantes",
+                "ProyectoActivo": "Activo",
+            }, inplace=True)
+            df.to_excel(path, index=False)
+            self._projects_dialog.show_info(
+                "Exportación completada",
+                f"Archivo guardado en:\n{path}"
+            )
+        except Exception as exc:
+            log.exception("Error al exportar listado de proyectos")
+            self._projects_dialog.show_error(
+                "Error al exportar",
+                f"No se pudo escribir el archivo Excel:\n{exc}"
+            )
+
+    def _open_project_members(self, cod_proyecto: str, nom_proyecto: str):
+        if hasattr(self, "_projects_dialog"):
+            self._projects_dialog.set_busy(
+                True, f"Consultando integrantes de {cod_proyecto}…"
+            )
+        worker = _Worker(sia_model.get_project_members, cod_proyecto)
+        worker.signals.finished.connect(
+            lambda data, cp=cod_proyecto, nm=nom_proyecto:
+            self._on_project_members_loaded(data, cp, nm)
+        )
+        worker.signals.error.connect(self._on_project_members_error)
+        self._pool.start(worker)
+
+    def _on_project_members_loaded(self, data: list, cod_proyecto: str, nom_proyecto: str):
+        from view.project_members_dialog import ProjectMembersDialog
+        if hasattr(self, "_projects_dialog") and self._projects_dialog.isVisible():
+            self._projects_dialog.set_busy(False)
+            self._projects_dialog.set_status(
+                f"Integrantes de {cod_proyecto}: {len(data)} fila(s)."
+            )
+        parent = self._projects_dialog if hasattr(self, "_projects_dialog") else self.view
+        dialog = ProjectMembersDialog(cod_proyecto, nom_proyecto, data, parent=parent)
+        dialog.export_requested.connect(self._export_project_members)
+        self._members_dialog = dialog
+        dialog.exec()
+
+    def _on_project_members_error(self, error: str):
+        if hasattr(self, "_projects_dialog") and self._projects_dialog.isVisible():
+            self._projects_dialog.set_busy(False)
+            self._projects_dialog.show_error(
+                "Error al consultar integrantes",
+                f"No se pudo obtener la lista de integrantes:\n\n{error}"
+            )
+
+    def _export_project_members(self, data: list, cod_proyecto: str):
+        if not data:
+            return
+        safe = cod_proyecto.strip().replace(" ", "_").replace("/", "-")
+        default_name = f"Integrantes_{safe}_{datetime.now().strftime('%Y-%m-%d_%H%M')}.xlsx"
+        parent = self._members_dialog if hasattr(self, "_members_dialog") else self.view
+        path, _ = QFileDialog.getSaveFileName(
+            parent, f"Guardar integrantes — {cod_proyecto}",
+            default_name, "Archivos de Excel (*.xlsx)"
+        )
+        if not path:
+            return
+        try:
+            df = pd.DataFrame(data)
+            df.to_excel(path, index=False)
+            self._members_dialog.show_info(
+                "Exportación completada",
+                f"Archivo guardado en:\n{path}"
+            )
+        except Exception as exc:
+            log.exception("Error al exportar integrantes")
+            self._members_dialog.show_error(
+                "Error al exportar",
+                f"No se pudo escribir el archivo Excel:\n{exc}"
+            )
 
     # ------------------------------------------------------------------
     # Helpers

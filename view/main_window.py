@@ -64,6 +64,9 @@ class MainWindow(QMainWindow):
     user_transactions_requested = pyqtSignal()
     project_transactions_requested = pyqtSignal()
     project_hours_summary_requested = pyqtSignal()
+    schema_report_requested = pyqtSignal()
+    projects_without_members_requested = pyqtSignal()
+    projects_list_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -115,6 +118,15 @@ class MainWindow(QMainWindow):
 
         action_project_summary = reportes_menu.addAction("Resumen de Horas por Proyecto…")
         action_project_summary.triggered.connect(self.project_hours_summary_requested.emit)
+
+        action_schema = reportes_menu.addAction("Inventario de Tablas del SIADB…")
+        action_schema.triggered.connect(self.schema_report_requested.emit)
+
+        action_no_members = reportes_menu.addAction("Proyectos sin Integrantes…")
+        action_no_members.triggered.connect(self.projects_without_members_requested.emit)
+
+        action_projects_list = reportes_menu.addAction("Listado de Proyectos…")
+        action_projects_list.triggered.connect(self.projects_list_requested.emit)
 
     def _build_form_panel(self) -> QFrame:
         frame = QFrame()

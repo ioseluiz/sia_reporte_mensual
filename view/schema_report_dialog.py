@@ -1,0 +1,224 @@
+from PyQt6.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+    QTableView, QPushButton, QHeaderView, QAbstractItemView,
+    QMessageBox, QProgressBar, QApplication,
+)
+from PyQt6.QtGui import QStandardItemModel, QStandardItem, QFont, QCursor
+from PyQt6.QtCore import Qt, pyqtSignal, QRegularExpression
+
+from .main_window import _MultiColumnProxy
+
+
+class SchemaReportDialog(QDialog):
+    load_requested = pyqtSignal()
+    export_requested = pyqtSignal(list)
+
+    _COLUMNS = [
+        ("TABLE_SCHEMA", "Esquema"),
+        ("TABLE_NAME", "Tabla"),
+        ("ORDINAL_POSITION", "Pos"),
+        ("COLUMN_NAME", "Columna"),
+        ("DATA_TYPE", "Tipo"),
+        ("CHARACTER_MAXIMUM_LENGTH", "Longitud"),
+        ("NUMERIC_PRECISION", "Precisión"),
+        ("NUMERIC_SCALE", "Escala"),
+        ("IS_NULLABLE", "Nullable"),
+    ]
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Inventario de Tablas del SIADB")
+        self.setMinimumSize(1000, 620)
+        self.resize(1100, 700)
+        self._data: list[dict] = []
+        self._busy_cursor_active = False
+
+        self._model = QStandardItemModel()
+        self._proxy = _MultiColumnProxy()
+        self._proxy.setSourceModel(self._model)
+        self._proxy.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        header = QHBoxLayout()
+        title = QLabel("Catálogo de tablas y columnas del SIADB")
+        bold = QFont()
+        bold.setBold(True)
+        title.setFont(bold)
+        header.addWidget(title)
+        header.addStretch()
+        self.btn_reload = QPushButton("Recargar")
+        self.btn_reload.setFixedWidth(120)
+        self.btn_reload.clicked.connect(self.load_requested.emit)
+        header.addWidget(self.btn_reload)
+        layout.addLayout(header)
+
+        filter_row = QHBoxLayout()
+        filter_row.addWidget(QLabel("Filtrar:"))
+        self.filter_input = QLineEdit()
+        self.filter_input.setPlaceholderText("Escriba para filtrar por esquema, tabla, columna o tipo...")
+        self.filter_input.setClearButtonEnabled(True)
+        self.filter_input.textChanged.connect(self._apply_filter)
+        self.filter_input.setEnabled(False)
+        filter_row.addWidget(self.filter_input)
+        layout.addLayout(filter_row)
+
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0)
+        self.progress.setTextVisible(False)
+        self.progress.setFixedHeight(6)
+        self.progress.setVisible(False)
+        layout.addWidget(self.progress)
+
+        summary_row = QHBoxLayout()
+        self.lbl_summary = QLabel("Cargando catálogo del SIADB…")
+        self.lbl_filtered = QLabel("")
+        self.lbl_filtered.setAlignment(Qt.AlignmentFlag.AlignRight)
+        summary_row.addWidget(self.lbl_summary)
+        summary_row.addStretch()
+        summary_row.addWidget(self.lbl_filtered)
+        layout.addLayout(summary_row)
+
+        self.table = QTableView()
+        self.table.setModel(self._proxy)
+        self.table.setAlternatingRowColors(True)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSortIndicatorShown(True)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSortingEnabled(True)
+        layout.addWidget(self.table)
+
+        btn_row = QHBoxLayout()
+        self.btn_export = QPushButton("Exportar a Excel")
+        self.btn_export.setEnabled(False)
+        self.btn_export.clicked.connect(self._on_export_clicked)
+        btn_close = QPushButton("Cerrar")
+        btn_close.clicked.connect(self.accept)
+        btn_row.addWidget(self.btn_export)
+        btn_row.addStretch()
+        btn_row.addWidget(btn_close)
+        layout.addLayout(btn_row)
+
+    def _on_export_clicked(self):
+        if self._data:
+            self.export_requested.emit(self._data)
+
+    def set_status(self, text: str):
+        self.lbl_summary.setText(text)
+
+    def set_busy(self, busy: bool, status_text: str | None = None):
+        self.btn_reload.setEnabled(not busy)
+        self.table.setEnabled(not busy)
+        has_data = len(self._data) > 0
+        self.filter_input.setEnabled(not busy and has_data)
+        self.btn_export.setEnabled(not busy and has_data)
+        self.progress.setVisible(busy)
+        if status_text is not None:
+            self.set_status(status_text)
+        if busy and not self._busy_cursor_active:
+            QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+            self._busy_cursor_active = True
+        elif not busy and self._busy_cursor_active:
+            QApplication.restoreOverrideCursor()
+            self._busy_cursor_active = False
+
+    def display_results(self, data: list[dict]):
+        self._data = data
+
+        self.table.setSortingEnabled(False)
+        self.table.setUpdatesEnabled(False)
+        self.table.setModel(None)
+        self._proxy.setSourceModel(None)
+        self._model.blockSignals(True)
+        self._model.clear()
+        self.filter_input.blockSignals(True)
+        self.filter_input.clear()
+        self.filter_input.blockSignals(False)
+
+        if not data:
+            self._model.blockSignals(False)
+            self._proxy.setSourceModel(self._model)
+            self._proxy.setFilterRegularExpression(QRegularExpression(""))
+            self.table.setModel(self._proxy)
+            self.table.setUpdatesEnabled(True)
+            self.table.setSortingEnabled(True)
+            self.lbl_summary.setText("No se encontraron tablas en el catálogo.")
+            self.lbl_filtered.setText("")
+            self.filter_input.setEnabled(False)
+            self.btn_export.setEnabled(False)
+            return
+
+        actual = [(k, label) for k, label in self._COLUMNS if k in data[0]]
+        self._model.setHorizontalHeaderLabels([label for _, label in actual])
+
+        align_right = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        align_center = Qt.AlignmentFlag.AlignCenter
+        numeric_keys = {"ORDINAL_POSITION", "CHARACTER_MAXIMUM_LENGTH",
+                        "NUMERIC_PRECISION", "NUMERIC_SCALE"}
+        center_keys = {"IS_NULLABLE", "TABLE_SCHEMA"}
+
+        self._model.setRowCount(len(data))
+        for r_idx, row in enumerate(data):
+            for c_idx, (key, _) in enumerate(actual):
+                val = row.get(key)
+                if val is None:
+                    item = QStandardItem("")
+                elif key in numeric_keys:
+                    item = QStandardItem(str(int(val)))
+                    item.setData(int(val), Qt.ItemDataRole.UserRole)
+                    item.setTextAlignment(align_right)
+                else:
+                    item = QStandardItem(str(val))
+                    if key in center_keys:
+                        item.setTextAlignment(align_center)
+                item.setEditable(False)
+                self._model.setItem(r_idx, c_idx, item)
+
+        self._model.blockSignals(False)
+        self._proxy.setSourceModel(self._model)
+        self._proxy.setFilterRegularExpression(QRegularExpression(""))
+        self.table.setModel(self._proxy)
+        self.table.setUpdatesEnabled(True)
+        self.table.setSortingEnabled(True)
+
+        header = self.table.horizontalHeader()
+        for i, (key, _) in enumerate(actual):
+            if key == "COLUMN_NAME" or key == "TABLE_NAME":
+                header.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
+            else:
+                header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
+
+        tablas = len({(r.get("TABLE_SCHEMA"), r.get("TABLE_NAME")) for r in data})
+        self.lbl_summary.setText(f"{tablas} tabla(s) · {len(data)} columna(s).")
+        self.lbl_filtered.setText("")
+        self.filter_input.setEnabled(True)
+        self.btn_export.setEnabled(True)
+
+    def _apply_filter(self, text: str):
+        escaped = QRegularExpression.escape(text)
+        self._proxy.setFilterRegularExpression(
+            QRegularExpression(escaped, QRegularExpression.PatternOption.CaseInsensitiveOption)
+        )
+        total = self._model.rowCount()
+        visible = self._proxy.rowCount()
+        self.lbl_filtered.setText(
+            "" if visible == total else f"Mostrando {visible} de {total}"
+        )
+
+    def show_error(self, title: str, message: str):
+        QMessageBox.critical(self, title, message)
+
+    def show_info(self, title: str, message: str):
+        QMessageBox.information(self, title, message)
+
+    def closeEvent(self, event):
+        if self._busy_cursor_active:
+            QApplication.restoreOverrideCursor()
+            self._busy_cursor_active = False
+        super().closeEvent(event)

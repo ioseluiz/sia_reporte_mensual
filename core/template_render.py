@@ -1,6 +1,7 @@
 """Render de la plantilla HTML del correo de horas menores a 8."""
 from __future__ import annotations
 
+import sys
 from datetime import date
 from html import escape
 from pathlib import Path
@@ -11,7 +12,27 @@ _MESES = [
     "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
 ]
 
-_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "templates" / "correo_menores_8.html"
+
+def _resolve_template_path() -> Path:
+    """Busca el HTML de la plantilla tanto en dev como en el .exe empaquetado.
+    PyInstaller expone los recursos en sys._MEIPASS; en dev se resuelve
+    relativo a este archivo (raiz-del-repo/templates).
+    """
+    candidates: list[Path] = []
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(Path(meipass) / "templates" / "correo_menores_8.html")
+    candidates.append(
+        Path(__file__).resolve().parent.parent / "templates" / "correo_menores_8.html"
+    )
+    for p in candidates:
+        if p.exists():
+            return p
+    # Cae al primer candidato para dar un mensaje de error claro al leerlo
+    return candidates[0]
+
+
+_TEMPLATE_PATH = _resolve_template_path()
 
 
 def format_periodo(inicio: date, fin: date) -> str:

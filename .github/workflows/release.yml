@@ -44,6 +44,9 @@ jobs:
             --icon="assets\icon.ico" `
             --name="SIA_Reporte_Mensual" `
             --add-data="assets;assets" `
+            --add-data="templates;templates" `
+            --hidden-import="pythoncom" `
+            --hidden-import="win32com.client.dynamic" `
             main.py
 
       - name: Build Inno Setup installer

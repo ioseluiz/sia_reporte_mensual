@@ -45,45 +45,70 @@ def crear_borrador(
     """Crea un borrador de Outlook y lo abre (no lo envía).
 
     Preserva la firma default de Outlook (incluyendo imágenes embebidas vía CID)
-    accediendo a GetInspector antes de mezclar el cuerpo. Retorna el MailItem
-    para que el usuario decida enviarlo o descartarlo.
+    accediendo a GetInspector antes de mezclar el cuerpo. Inicializa COM en
+    modo apartment-threaded para el hilo actual (necesario en el .exe frozen
+    de PyInstaller, donde Qt no inicializa COM del modo que espera pywin32).
     """
     try:
-        import win32com.client as com
+        import win32com.client.dynamic as com_dynamic
+        import pythoncom
         import pywintypes
     except ImportError as exc:
         raise OutlookNoDisponibleError(
             "pywin32 no está instalado. Ejecútese: pip install pywin32"
         ) from exc
 
+    com_initialized = False
     try:
-        outlook = com.Dispatch("Outlook.Application")
-    except pywintypes.com_error as exc:
-        raise OutlookNoDisponibleError(
-            "No se pudo iniciar Outlook. Asegúrese de que esté instalado y con un perfil configurado."
-        ) from exc
+        try:
+            pythoncom.CoInitialize()
+            com_initialized = True
+        except pywintypes.com_error:
+            # Ya inicializado en otro modo — sigue siendo utilizable
+            com_initialized = False
 
-    try:
-        mail = outlook.CreateItem(0)  # olMailItem
-        mail.To = to or ""
-        if cc:
-            cc_str = "; ".join(cc) if isinstance(cc, (list, tuple)) else str(cc)
-            mail.CC = cc_str
-        mail.Subject = subject
+        try:
+            # dynamic.Dispatch fuerza late binding: NO usa el cache gen_py.
+            # Es imprescindible en el .exe de PyInstaller porque gen_py intenta
+            # escribir en _MEIPASS (read-only) y puede matar el proceso.
+            outlook = com_dynamic.Dispatch("Outlook.Application")
+        except pywintypes.com_error as exc:
+            raise OutlookNoDisponibleError(
+                "No se pudo iniciar Outlook. Asegúrese de que esté instalado y con un perfil configurado."
+            ) from exc
 
-        # Dispara la inserción de la firma default de Outlook en HTMLBody.
-        # Sin esto, el HTMLBody que asignamos sobrescribe todo y la firma
-        # (con su imagen embebida vía CID) nunca aparece.
-        _ = mail.GetInspector
-        firma_html = mail.HTMLBody or ""
+        try:
+            mail = outlook.CreateItem(0)  # olMailItem
+            mail.To = to or ""
+            if cc:
+                cc_str = "; ".join(cc) if isinstance(cc, (list, tuple)) else str(cc)
+                mail.CC = cc_str
+            mail.Subject = subject
 
-        mail.HTMLBody = _mezclar_con_firma(html_body, firma_html)
+            # Dispara la inserción de la firma default de Outlook en HTMLBody.
+            # Sin esto, el HTMLBody que asignamos sobrescribe todo y la firma
+            # (con su imagen embebida vía CID) nunca aparece.
+            _ = mail.GetInspector
+            firma_html = mail.HTMLBody or ""
 
-        for path in (attachments or []):
-            mail.Attachments.Add(str(path))
-        mail.Display(False)
-        return mail
-    except pywintypes.com_error as exc:
-        raise OutlookNoDisponibleError(
-            f"Outlook rechazó la creación del borrador: {exc}"
-        ) from exc
+            mail.HTMLBody = _mezclar_con_firma(html_body, firma_html)
+
+            for path in (attachments or []):
+                mail.Attachments.Add(str(path))
+            mail.Display(False)
+            return None
+        except pywintypes.com_error as exc:
+            raise OutlookNoDisponibleError(
+                f"Outlook rechazó la creación del borrador: {exc}"
+            ) from exc
+        except Exception as exc:
+            log.exception("Fallo inesperado al crear borrador en Outlook")
+            raise OutlookNoDisponibleError(
+                f"Fallo inesperado al crear borrador en Outlook: {exc}"
+            ) from exc
+    finally:
+        if com_initialized:
+            try:
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
