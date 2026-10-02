@@ -1,5 +1,6 @@
 from datetime import date
 from .database import get_connection
+from core.fiscal_year import fys_to_date_range
 
 
 def get_proyectos_ph() -> list[dict]:
@@ -12,6 +13,21 @@ def get_proyectos_ph() -> list[dict]:
         WHERE NomProyecto LIKE '%PH%'
         ORDER BY CodProyecto
     """)
+    return cursor.fetchall()
+
+
+def get_proyectos_desde_fecha(fecha_desde: date) -> list[dict]:
+    """Devuelve TODAS las columnas de tblProyectos cuya FechaRec (fecha de
+    recepcion/ingreso) sea mayor o igual a la fecha dada.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT *
+        FROM tblProyectos
+        WHERE FechaRec >= %s
+        ORDER BY FechaRec, CodProyecto
+    """, (fecha_desde,))
     return cursor.fetchall()
 
 
@@ -508,4 +524,133 @@ def get_siadb_schema() -> list[dict]:
           AND t.TABLE_NAME <> 'sysdiagrams'
         ORDER BY c.TABLE_SCHEMA, c.TABLE_NAME, c.ORDINAL_POSITION
     """)
+    return cursor.fetchall()
+
+
+def get_fiscal_years_available() -> list[int]:
+    """
+    Devuelve los anos fiscales (ACP: oct-sep) distintos presentes en tblTransacciones.
+    FY2025 = 1 oct 2024 - 30 sep 2025. Ordenado descendente para que el mas reciente
+    aparezca primero en la UI.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT DISTINCT
+            CASE WHEN MONTH(Fecha) >= 10
+                 THEN YEAR(Fecha) + 1
+                 ELSE YEAR(Fecha) END AS FY
+        FROM tblTransacciones
+        WHERE Fecha IS NOT NULL
+        ORDER BY FY DESC
+    """)
+    return [row["FY"] for row in cursor.fetchall()]
+
+
+def get_fiscal_year_raw_data(fiscal_years: list[int]) -> list[dict]:
+    """
+    Reporte agregado por (SIA, Proyecto, Cliente, Ingeniero, Codramo_act2, Rol,
+    Fiscalv2, Coordinador, DescCuenta) con SUM(HoraRegular). Reproduce el formato
+    del archivo info/raw_data_YYYY-YYYY.xlsx usado por INICA.
+
+    Mapeo de columnas (confirmado contra el schema del SIADB):
+      - SIA          : TRY_CAST(p.CodProyecto AS INT)
+      - Proyecto     : p.NomProyecto
+      - Cliente      : p.CodCliente
+      - Ingeniero    : u.NomUsuario (JOIN por t.IP)
+      - Sum of HoraRegular : SUM(t.HoraRegular)
+      - Codramo_act2 : t.CodRamo (ramo del empleado al momento de la transaccion)
+      - Rol          : derivado de tblIntegrantes.Coordinador (bit)
+                       Coordinador=1 -> 'Coordinador', Coordinador=0 -> 'Apoyo',
+                       sin fila en tblIntegrantes -> NULL
+      - Fiscalv2     : CASE WHEN MONTH(Fecha)>=10 THEN YEAR+1 ELSE YEAR END
+      - Coordinador  : NomUsuario del integrante marcado como Coordinador=1 en
+                       tblIntegrantes (si hay varios se concatenan con ', ').
+                       Nota: p.IPCoordinador existe en el schema pero esta vacio
+                       en todos los proyectos del SIADB en produccion.
+      - DescCuenta   : tblMacroCuentas.DescCuenta (JOIN por p.CodCuenta)
+
+    No filtra ramos: incluye TODOS los ramos (INI, IAI, etc.) tal como el Excel original.
+    Excluye usuarios de prueba/inactivos ('ZZ%' / 'zz%') igual que los demas reportes.
+    """
+    if not fiscal_years:
+        return []
+
+    start_date, end_date = fys_to_date_range(fiscal_years)
+    placeholders = ", ".join(["%s" for _ in fiscal_years])
+
+    sql = f"""
+        WITH TxFY AS (
+            SELECT
+                LTRIM(RTRIM(t.CodProyecto)) AS CodProyectoKey,
+                t.IP,
+                t.CodRamo,
+                t.HoraRegular,
+                CASE WHEN MONTH(t.Fecha) >= 10
+                     THEN YEAR(t.Fecha) + 1
+                     ELSE YEAR(t.Fecha) END AS FY
+            FROM tblTransacciones t
+            WHERE t.Fecha >= %s AND t.Fecha <= %s
+              AND t.HoraRegular IS NOT NULL
+        ),
+        CoordPorProyecto AS (
+            SELECT
+                LTRIM(RTRIM(i.CodProyecto)) AS CodProyectoKey,
+                STRING_AGG(uc.NomUsuario, ', ') AS Coordinador
+            FROM tblIntegrantes i
+            INNER JOIN tblUsuarios uc ON uc.IP = i.IP
+            WHERE i.Coordinador = 1
+            GROUP BY LTRIM(RTRIM(i.CodProyecto))
+        )
+        SELECT
+            TRY_CAST(x.CodProyectoKey AS INT)              AS SIA,
+            p.NomProyecto                                  AS Proyecto,
+            p.CodCliente                                   AS Cliente,
+            u.NomUsuario                                   AS Ingeniero,
+            CAST(SUM(x.HoraRegular) AS DECIMAL(18,2))      AS [Sum of HoraRegular],
+            x.CodRamo                                      AS Codramo_act2,
+            CASE
+                WHEN i.IP IS NULL THEN NULL
+                WHEN i.Coordinador = 1 THEN 'Coordinador'
+                ELSE 'Apoyo'
+            END                                            AS Rol,
+            x.FY                                           AS Fiscalv2,
+            c.Coordinador                                  AS Coordinador,
+            mc.DescCuenta                                  AS DescCuenta
+        FROM TxFY x
+        INNER JOIN tblProyectos p
+            ON LTRIM(RTRIM(p.CodProyecto)) = x.CodProyectoKey
+        INNER JOIN tblUsuarios u
+            ON u.IP = x.IP
+        LEFT JOIN tblIntegrantes i
+            ON LTRIM(RTRIM(i.CodProyecto)) = x.CodProyectoKey
+           AND i.IP = x.IP
+        LEFT JOIN CoordPorProyecto c
+            ON c.CodProyectoKey = x.CodProyectoKey
+        LEFT JOIN tblMacroCuentas mc
+            ON mc.CodCuenta = p.CodCuenta
+        WHERE x.FY IN ({placeholders})
+          AND u.NomUsuario NOT LIKE 'ZZ%%'
+          AND u.NomUsuario NOT LIKE 'zz%%'
+        GROUP BY
+            TRY_CAST(x.CodProyectoKey AS INT),
+            p.NomProyecto,
+            p.CodCliente,
+            u.NomUsuario,
+            x.CodRamo,
+            CASE
+                WHEN i.IP IS NULL THEN NULL
+                WHEN i.Coordinador = 1 THEN 'Coordinador'
+                ELSE 'Apoyo'
+            END,
+            x.FY,
+            c.Coordinador,
+            mc.DescCuenta
+        ORDER BY x.FY, p.NomProyecto, u.NomUsuario
+    """
+    params = [start_date, end_date, *fiscal_years]
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(sql, params)
     return cursor.fetchall()

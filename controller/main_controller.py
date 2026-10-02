@@ -70,6 +70,7 @@ class MainController:
         self.view.schema_report_requested.connect(self._open_schema_report)
         self.view.projects_without_members_requested.connect(self._open_projects_without_members)
         self.view.projects_list_requested.connect(self._open_projects_list)
+        self.view.fiscal_year_report_requested.connect(self._open_fiscal_year_report)
 
     # ------------------------------------------------------------------
     # Arranque y configuración
@@ -1170,6 +1171,109 @@ class MainController:
                 "Error al exportar",
                 f"No se pudo escribir el archivo Excel:\n{exc}"
             )
+
+    # ------------------------------------------------------------------
+    # Reporte Raw Data por Año Fiscal
+    # ------------------------------------------------------------------
+
+    def _open_fiscal_year_report(self):
+        from view.fiscal_year_report_dialog import FiscalYearReportDialog
+
+        dialog = FiscalYearReportDialog(self.view)
+        dialog.load_fys_requested.connect(self._load_fiscal_years)
+        dialog.query_requested.connect(self._run_fiscal_year_report)
+        dialog.export_requested.connect(self._export_fiscal_year_report)
+        self._fy_report_dialog = dialog
+
+        self._load_fiscal_years()
+        dialog.exec()
+
+    def _load_fiscal_years(self):
+        if hasattr(self, "_fy_report_dialog"):
+            self._fy_report_dialog.set_busy(True, "Cargando años fiscales disponibles…")
+        worker = _Worker(sia_model.get_fiscal_years_available)
+        worker.signals.finished.connect(self._on_fiscal_years_loaded)
+        worker.signals.error.connect(self._on_fy_report_error)
+        self._pool.start(worker)
+
+    def _on_fiscal_years_loaded(self, fys: list):
+        if hasattr(self, "_fy_report_dialog") and self._fy_report_dialog.isVisible():
+            self._fy_report_dialog.set_fiscal_years(fys)
+            self._fy_report_dialog.set_busy(
+                False,
+                f"{len(fys)} años fiscales disponibles. "
+                "Seleccione uno o más y pulse Consultar."
+            )
+
+    def _run_fiscal_year_report(self, fys: list):
+        self._fy_report_dialog.set_busy(
+            True,
+            f"Consultando raw data de {len(fys)} año(s) fiscal(es)… "
+            "Esto puede tomar varios segundos."
+        )
+        worker = _Worker(sia_model.get_fiscal_year_raw_data, fys)
+        worker.signals.finished.connect(self._on_fy_report_finished)
+        worker.signals.error.connect(self._on_fy_report_error)
+        self._pool.start(worker)
+
+    def _on_fy_report_finished(self, data: list):
+        if hasattr(self, "_fy_report_dialog") and self._fy_report_dialog.isVisible():
+            self._fy_report_dialog.display_results(data)
+            self._fy_report_dialog.set_busy(False)
+
+    def _on_fy_report_error(self, error: str):
+        if hasattr(self, "_fy_report_dialog") and self._fy_report_dialog.isVisible():
+            self._fy_report_dialog.set_busy(False)
+        self.view.show_error("Error", f"Ocurrió un error:\n\n{error}")
+
+    def _export_fiscal_year_report(self, data: list, fys: list, fmt: str):
+        if not data:
+            return
+        fys_sorted = sorted(int(fy) for fy in fys) if fys else []
+        if fys_sorted:
+            if fys_sorted[0] == fys_sorted[-1]:
+                tag = f"FY{fys_sorted[0]}"
+                sheet = f"raw_data_{fys_sorted[0]}"
+            else:
+                tag = f"FY{fys_sorted[0]}-{fys_sorted[-1]}"
+                sheet = f"raw_data_{fys_sorted[0]}-{fys_sorted[-1]}"
+        else:
+            tag = "FY"
+            sheet = "raw_data"
+
+        is_csv = fmt.lower() == "csv"
+        ext = "csv" if is_csv else "xlsx"
+        file_filter = "CSV (*.csv)" if is_csv else "Excel (*.xlsx)"
+        default_name = f"raw_data_{tag}_{datetime.now().strftime('%Y-%m-%d_%H%M')}.{ext}"
+        parent = self._fy_report_dialog if hasattr(self, "_fy_report_dialog") else self.view
+        path, _ = QFileDialog.getSaveFileName(
+            parent, "Guardar Raw Data por Año Fiscal",
+            default_name, file_filter
+        )
+        if not path:
+            return
+        try:
+            column_order = [
+                "SIA", "Proyecto", "Cliente", "Ingeniero",
+                "Sum of HoraRegular", "Codramo_act2", "Rol",
+                "Fiscalv2", "Coordinador", "DescCuenta",
+            ]
+            df = pd.DataFrame(data)
+            actual = [c for c in column_order if c in df.columns]
+            df = df[actual]
+
+            if is_csv:
+                df.to_csv(path, index=False, encoding="utf-8-sig")
+            else:
+                sheet_name = self._sanitize_sheet_name(sheet)
+                with pd.ExcelWriter(path, engine="openpyxl") as writer:
+                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+            self.view.show_info(
+                "Exportar",
+                f"Archivo guardado exitosamente en:\n{path}"
+            )
+        except Exception as exc:
+            self.view.show_error("Error al exportar", str(exc))
 
     # ------------------------------------------------------------------
     # Helpers

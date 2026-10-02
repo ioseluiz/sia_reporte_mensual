@@ -67,6 +67,7 @@ class MainWindow(QMainWindow):
     schema_report_requested = pyqtSignal()
     projects_without_members_requested = pyqtSignal()
     projects_list_requested = pyqtSignal()
+    fiscal_year_report_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -118,6 +119,9 @@ class MainWindow(QMainWindow):
 
         action_project_summary = reportes_menu.addAction("Resumen de Horas por Proyecto…")
         action_project_summary.triggered.connect(self.project_hours_summary_requested.emit)
+
+        action_fy_report = reportes_menu.addAction("Raw Data por Año Fiscal…")
+        action_fy_report.triggered.connect(self.fiscal_year_report_requested.emit)
 
         action_schema = reportes_menu.addAction("Inventario de Tablas del SIADB…")
         action_schema.triggered.connect(self.schema_report_requested.emit)
