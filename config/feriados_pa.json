@@ -1,0 +1,590 @@
+[
+  {
+    "fecha": "2022-01-01",
+    "descripcion": "Año Nuevo"
+  },
+  {
+    "fecha": "2022-01-03",
+    "descripcion": "Año Nuevo (observado)"
+  },
+  {
+    "fecha": "2022-01-09",
+    "descripcion": "Día de los Mártires"
+  },
+  {
+    "fecha": "2022-01-10",
+    "descripcion": "Día de los Mártires (observado)"
+  },
+  {
+    "fecha": "2022-03-01",
+    "descripcion": "Martes de Carnaval"
+  },
+  {
+    "fecha": "2022-04-15",
+    "descripcion": "Viernes Santo"
+  },
+  {
+    "fecha": "2022-05-01",
+    "descripcion": "Día del Trabajador"
+  },
+  {
+    "fecha": "2022-05-02",
+    "descripcion": "Día del Trabajador (observado)"
+  },
+  {
+    "fecha": "2022-11-03",
+    "descripcion": "Separación de Panamá de Colombia"
+  },
+  {
+    "fecha": "2022-11-04",
+    "descripcion": "Día de los Símbolos Patrios"
+  },
+  {
+    "fecha": "2022-11-05",
+    "descripcion": "Día de Colón"
+  },
+  {
+    "fecha": "2022-11-07",
+    "descripcion": "Día de Colón (observado)"
+  },
+  {
+    "fecha": "2022-11-10",
+    "descripcion": "Primer Grito de Independencia de la Villa de los Santos"
+  },
+  {
+    "fecha": "2022-11-28",
+    "descripcion": "Independencia de Panamá de España"
+  },
+  {
+    "fecha": "2022-12-08",
+    "descripcion": "Día de la Madre"
+  },
+  {
+    "fecha": "2022-12-24",
+    "descripcion": "Nochebuena (día cívico)"
+  },
+  {
+    "fecha": "2022-12-25",
+    "descripcion": "Navidad"
+  },
+  {
+    "fecha": "2022-12-26",
+    "descripcion": "Navidad (observado)"
+  },
+  {
+    "fecha": "2022-12-31",
+    "descripcion": "Víspera de Año Nuevo (día cívico)"
+  },
+  {
+    "fecha": "2023-01-01",
+    "descripcion": "Año Nuevo"
+  },
+  {
+    "fecha": "2023-01-02",
+    "descripcion": "Año Nuevo (observado)"
+  },
+  {
+    "fecha": "2023-01-09",
+    "descripcion": "Día de los Mártires"
+  },
+  {
+    "fecha": "2023-02-21",
+    "descripcion": "Martes de Carnaval"
+  },
+  {
+    "fecha": "2023-04-07",
+    "descripcion": "Viernes Santo"
+  },
+  {
+    "fecha": "2023-05-01",
+    "descripcion": "Día del Trabajador"
+  },
+  {
+    "fecha": "2023-11-03",
+    "descripcion": "Separación de Panamá de Colombia"
+  },
+  {
+    "fecha": "2023-11-04",
+    "descripcion": "Día de los Símbolos Patrios"
+  },
+  {
+    "fecha": "2023-11-05",
+    "descripcion": "Día de Colón"
+  },
+  {
+    "fecha": "2023-11-06",
+    "descripcion": "Día de los Símbolos Patrios (observado)"
+  },
+  {
+    "fecha": "2023-11-10",
+    "descripcion": "Primer Grito de Independencia de la Villa de los Santos"
+  },
+  {
+    "fecha": "2023-11-28",
+    "descripcion": "Independencia de Panamá de España"
+  },
+  {
+    "fecha": "2023-12-08",
+    "descripcion": "Día de la Madre"
+  },
+  {
+    "fecha": "2023-12-24",
+    "descripcion": "Nochebuena (día cívico)"
+  },
+  {
+    "fecha": "2023-12-25",
+    "descripcion": "Navidad"
+  },
+  {
+    "fecha": "2023-12-31",
+    "descripcion": "Víspera de Año Nuevo (día cívico)"
+  },
+  {
+    "fecha": "2024-01-01",
+    "descripcion": "Año Nuevo"
+  },
+  {
+    "fecha": "2024-01-09",
+    "descripcion": "Día de los Mártires"
+  },
+  {
+    "fecha": "2024-02-13",
+    "descripcion": "Martes de Carnaval"
+  },
+  {
+    "fecha": "2024-03-29",
+    "descripcion": "Viernes Santo"
+  },
+  {
+    "fecha": "2024-05-01",
+    "descripcion": "Día del Trabajador"
+  },
+  {
+    "fecha": "2024-11-03",
+    "descripcion": "Separación de Panamá de Colombia"
+  },
+  {
+    "fecha": "2024-11-04",
+    "descripcion": "Separación de Panamá de Colombia (observado)"
+  },
+  {
+    "fecha": "2024-11-05",
+    "descripcion": "Día de Colón"
+  },
+  {
+    "fecha": "2024-11-10",
+    "descripcion": "Primer Grito de Independencia de la Villa de los Santos"
+  },
+  {
+    "fecha": "2024-11-11",
+    "descripcion": "Primer Grito de Independencia de la Villa de los Santos (observado)"
+  },
+  {
+    "fecha": "2024-11-28",
+    "descripcion": "Independencia de Panamá de España"
+  },
+  {
+    "fecha": "2024-12-08",
+    "descripcion": "Día de la Madre"
+  },
+  {
+    "fecha": "2024-12-09",
+    "descripcion": "Día de la Madre (observado)"
+  },
+  {
+    "fecha": "2024-12-24",
+    "descripcion": "Nochebuena (día cívico)"
+  },
+  {
+    "fecha": "2024-12-25",
+    "descripcion": "Navidad"
+  },
+  {
+    "fecha": "2024-12-31",
+    "descripcion": "Víspera de Año Nuevo (día cívico)"
+  },
+  {
+    "fecha": "2025-01-01",
+    "descripcion": "Año Nuevo"
+  },
+  {
+    "fecha": "2025-01-09",
+    "descripcion": "Día de los Mártires"
+  },
+  {
+    "fecha": "2025-03-04",
+    "descripcion": "Martes de Carnaval"
+  },
+  {
+    "fecha": "2025-04-18",
+    "descripcion": "Viernes Santo"
+  },
+  {
+    "fecha": "2025-05-01",
+    "descripcion": "Día del Trabajador"
+  },
+  {
+    "fecha": "2025-11-03",
+    "descripcion": "Separación de Panamá de Colombia"
+  },
+  {
+    "fecha": "2025-11-04",
+    "descripcion": "Día de los Símbolos Patrios"
+  },
+  {
+    "fecha": "2025-11-05",
+    "descripcion": "Día de Colón"
+  },
+  {
+    "fecha": "2025-11-10",
+    "descripcion": "Primer Grito de Independencia de la Villa de los Santos"
+  },
+  {
+    "fecha": "2025-11-28",
+    "descripcion": "Independencia de Panamá de España"
+  },
+  {
+    "fecha": "2025-12-08",
+    "descripcion": "Día de la Madre"
+  },
+  {
+    "fecha": "2025-12-24",
+    "descripcion": "Nochebuena (día cívico)"
+  },
+  {
+    "fecha": "2025-12-25",
+    "descripcion": "Navidad"
+  },
+  {
+    "fecha": "2025-12-31",
+    "descripcion": "Víspera de Año Nuevo (día cívico)"
+  },
+  {
+    "fecha": "2026-01-01",
+    "descripcion": "Año Nuevo"
+  },
+  {
+    "fecha": "2026-01-09",
+    "descripcion": "Día de los Mártires"
+  },
+  {
+    "fecha": "2026-02-17",
+    "descripcion": "Martes de Carnaval"
+  },
+  {
+    "fecha": "2026-04-03",
+    "descripcion": "Viernes Santo"
+  },
+  {
+    "fecha": "2026-05-01",
+    "descripcion": "Día del Trabajador"
+  },
+  {
+    "fecha": "2026-11-03",
+    "descripcion": "Separación de Panamá de Colombia"
+  },
+  {
+    "fecha": "2026-11-04",
+    "descripcion": "Día de los Símbolos Patrios"
+  },
+  {
+    "fecha": "2026-11-05",
+    "descripcion": "Día de Colón"
+  },
+  {
+    "fecha": "2026-11-10",
+    "descripcion": "Primer Grito de Independencia de la Villa de los Santos"
+  },
+  {
+    "fecha": "2026-11-28",
+    "descripcion": "Independencia de Panamá de España"
+  },
+  {
+    "fecha": "2026-11-30",
+    "descripcion": "Independencia de Panamá de España (observado)"
+  },
+  {
+    "fecha": "2026-12-08",
+    "descripcion": "Día de la Madre"
+  },
+  {
+    "fecha": "2026-12-24",
+    "descripcion": "Nochebuena (día cívico)"
+  },
+  {
+    "fecha": "2026-12-25",
+    "descripcion": "Navidad"
+  },
+  {
+    "fecha": "2026-12-31",
+    "descripcion": "Víspera de Año Nuevo (día cívico)"
+  },
+  {
+    "fecha": "2027-01-01",
+    "descripcion": "Año Nuevo"
+  },
+  {
+    "fecha": "2027-01-09",
+    "descripcion": "Día de los Mártires"
+  },
+  {
+    "fecha": "2027-01-11",
+    "descripcion": "Día de los Mártires (observado)"
+  },
+  {
+    "fecha": "2027-02-09",
+    "descripcion": "Martes de Carnaval"
+  },
+  {
+    "fecha": "2027-03-26",
+    "descripcion": "Viernes Santo"
+  },
+  {
+    "fecha": "2027-05-01",
+    "descripcion": "Día del Trabajador"
+  },
+  {
+    "fecha": "2027-05-03",
+    "descripcion": "Día del Trabajador (observado)"
+  },
+  {
+    "fecha": "2027-11-03",
+    "descripcion": "Separación de Panamá de Colombia"
+  },
+  {
+    "fecha": "2027-11-04",
+    "descripcion": "Día de los Símbolos Patrios"
+  },
+  {
+    "fecha": "2027-11-05",
+    "descripcion": "Día de Colón"
+  },
+  {
+    "fecha": "2027-11-10",
+    "descripcion": "Primer Grito de Independencia de la Villa de los Santos"
+  },
+  {
+    "fecha": "2027-11-28",
+    "descripcion": "Independencia de Panamá de España"
+  },
+  {
+    "fecha": "2027-11-29",
+    "descripcion": "Independencia de Panamá de España (observado)"
+  },
+  {
+    "fecha": "2027-12-08",
+    "descripcion": "Día de la Madre"
+  },
+  {
+    "fecha": "2027-12-24",
+    "descripcion": "Nochebuena (día cívico)"
+  },
+  {
+    "fecha": "2027-12-25",
+    "descripcion": "Navidad"
+  },
+  {
+    "fecha": "2027-12-27",
+    "descripcion": "Navidad (observado)"
+  },
+  {
+    "fecha": "2027-12-31",
+    "descripcion": "Víspera de Año Nuevo (día cívico)"
+  },
+  {
+    "fecha": "2028-01-01",
+    "descripcion": "Año Nuevo"
+  },
+  {
+    "fecha": "2028-01-03",
+    "descripcion": "Año Nuevo (observado)"
+  },
+  {
+    "fecha": "2028-01-09",
+    "descripcion": "Día de los Mártires"
+  },
+  {
+    "fecha": "2028-01-10",
+    "descripcion": "Día de los Mártires (observado)"
+  },
+  {
+    "fecha": "2028-02-29",
+    "descripcion": "Martes de Carnaval"
+  },
+  {
+    "fecha": "2028-04-14",
+    "descripcion": "Viernes Santo"
+  },
+  {
+    "fecha": "2028-05-01",
+    "descripcion": "Día del Trabajador"
+  },
+  {
+    "fecha": "2028-11-03",
+    "descripcion": "Separación de Panamá de Colombia"
+  },
+  {
+    "fecha": "2028-11-04",
+    "descripcion": "Día de los Símbolos Patrios"
+  },
+  {
+    "fecha": "2028-11-05",
+    "descripcion": "Día de Colón"
+  },
+  {
+    "fecha": "2028-11-06",
+    "descripcion": "Día de los Símbolos Patrios (observado)"
+  },
+  {
+    "fecha": "2028-11-10",
+    "descripcion": "Primer Grito de Independencia de la Villa de los Santos"
+  },
+  {
+    "fecha": "2028-11-28",
+    "descripcion": "Independencia de Panamá de España"
+  },
+  {
+    "fecha": "2028-12-08",
+    "descripcion": "Día de la Madre"
+  },
+  {
+    "fecha": "2028-12-24",
+    "descripcion": "Nochebuena (día cívico)"
+  },
+  {
+    "fecha": "2028-12-25",
+    "descripcion": "Navidad"
+  },
+  {
+    "fecha": "2028-12-31",
+    "descripcion": "Víspera de Año Nuevo (día cívico)"
+  },
+  {
+    "fecha": "2029-01-01",
+    "descripcion": "Año Nuevo"
+  },
+  {
+    "fecha": "2029-01-09",
+    "descripcion": "Día de los Mártires"
+  },
+  {
+    "fecha": "2029-02-13",
+    "descripcion": "Martes de Carnaval"
+  },
+  {
+    "fecha": "2029-03-30",
+    "descripcion": "Viernes Santo"
+  },
+  {
+    "fecha": "2029-05-01",
+    "descripcion": "Día del Trabajador"
+  },
+  {
+    "fecha": "2029-11-03",
+    "descripcion": "Separación de Panamá de Colombia"
+  },
+  {
+    "fecha": "2029-11-04",
+    "descripcion": "Día de los Símbolos Patrios"
+  },
+  {
+    "fecha": "2029-11-05",
+    "descripcion": "Separación de Panamá de Colombia (observado)"
+  },
+  {
+    "fecha": "2029-11-10",
+    "descripcion": "Primer Grito de Independencia de la Villa de los Santos"
+  },
+  {
+    "fecha": "2029-11-12",
+    "descripcion": "Primer Grito de Independencia de la Villa de los Santos (observado)"
+  },
+  {
+    "fecha": "2029-11-28",
+    "descripcion": "Independencia de Panamá de España"
+  },
+  {
+    "fecha": "2029-12-08",
+    "descripcion": "Día de la Madre"
+  },
+  {
+    "fecha": "2029-12-10",
+    "descripcion": "Día de la Madre (observado)"
+  },
+  {
+    "fecha": "2029-12-24",
+    "descripcion": "Nochebuena (día cívico)"
+  },
+  {
+    "fecha": "2029-12-25",
+    "descripcion": "Navidad"
+  },
+  {
+    "fecha": "2029-12-31",
+    "descripcion": "Víspera de Año Nuevo (día cívico)"
+  },
+  {
+    "fecha": "2030-01-01",
+    "descripcion": "Año Nuevo"
+  },
+  {
+    "fecha": "2030-01-09",
+    "descripcion": "Día de los Mártires"
+  },
+  {
+    "fecha": "2030-03-05",
+    "descripcion": "Martes de Carnaval"
+  },
+  {
+    "fecha": "2030-04-19",
+    "descripcion": "Viernes Santo"
+  },
+  {
+    "fecha": "2030-05-01",
+    "descripcion": "Día del Trabajador"
+  },
+  {
+    "fecha": "2030-11-03",
+    "descripcion": "Separación de Panamá de Colombia"
+  },
+  {
+    "fecha": "2030-11-04",
+    "descripcion": "Separación de Panamá de Colombia (observado)"
+  },
+  {
+    "fecha": "2030-11-05",
+    "descripcion": "Día de Colón"
+  },
+  {
+    "fecha": "2030-11-10",
+    "descripcion": "Primer Grito de Independencia de la Villa de los Santos"
+  },
+  {
+    "fecha": "2030-11-11",
+    "descripcion": "Primer Grito de Independencia de la Villa de los Santos (observado)"
+  },
+  {
+    "fecha": "2030-11-28",
+    "descripcion": "Independencia de Panamá de España"
+  },
+  {
+    "fecha": "2030-12-08",
+    "descripcion": "Día de la Madre"
+  },
+  {
+    "fecha": "2030-12-09",
+    "descripcion": "Día de la Madre (observado)"
+  },
+  {
+    "fecha": "2030-12-24",
+    "descripcion": "Nochebuena (día cívico)"
+  },
+  {
+    "fecha": "2030-12-25",
+    "descripcion": "Navidad"
+  },
+  {
+    "fecha": "2030-12-31",
+    "descripcion": "Víspera de Año Nuevo (día cívico)"
+  }
+]

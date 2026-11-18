@@ -145,7 +145,7 @@ def get_collaborators() -> list[dict]:
     return cursor.fetchall()
 
 
-def get_users_under_8_hours(start_date, end_date) -> list[dict]:
+def get_users_under_8_hours(start_date, end_date, feriados=None) -> list[dict]:
     """
     Devuelve, por cada empleado de ramos INI y cada dia L-V del rango, las filas
     con menos de 8 horas regulares registradas — incluyendo dias sin ningun
@@ -153,10 +153,21 @@ def get_users_under_8_hours(start_date, end_date) -> list[dict]:
     (CodRamo LIKE 'INI%%', excluyendo 'ZZ%%'/'zz%%') CROSS JOIN dias laborables,
     con LEFT JOIN a las horas agregadas por (IP, Fecha), para no omitir empleados
     que no llenaron SIA en un dia dado.
+
+    Si `feriados` (list[date]) es no-vacio, excluye esas fechas de DiasLaborables.
+    Si es None o lista vacia, no filtra feriados (comportamiento original).
     """
     conn = get_connection()
     cursor = conn.cursor()
-    sql = """
+
+    feriados = list(feriados) if feriados else []
+    if feriados:
+        fer_placeholders = ", ".join(["%s" for _ in feriados])
+        filtro_feriados = f"AND Dia NOT IN ({fer_placeholders})"
+    else:
+        filtro_feriados = ""
+
+    sql = f"""
         WITH DiasCal AS (
             SELECT CAST(%s AS date) AS Dia
             UNION ALL
@@ -168,6 +179,7 @@ def get_users_under_8_hours(start_date, end_date) -> list[dict]:
             SELECT Dia
             FROM DiasCal
             WHERE ((DATEPART(dw, Dia) + @@DATEFIRST - 2) % 7) < 5
+              {filtro_feriados}
         ),
         EmpleadosINI AS (
             SELECT IP, NomUsuario, CodRamo
@@ -195,7 +207,8 @@ def get_users_under_8_hours(start_date, end_date) -> list[dict]:
         ORDER BY e.CodRamo, e.NomUsuario, d.Dia
         OPTION (MAXRECURSION 32767)
     """
-    cursor.execute(sql, (start_date, end_date, start_date, end_date))
+    params = [start_date, end_date, *feriados, start_date, end_date]
+    cursor.execute(sql, params)
     return cursor.fetchall()
 
 

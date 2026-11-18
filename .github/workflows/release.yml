@@ -45,6 +45,7 @@ jobs:
             --name="SIA_Reporte_Mensual" `
             --add-data="assets;assets" `
             --add-data="templates;templates" `
+            --add-data="config;config" `
             --hidden-import="pythoncom" `
             --hidden-import="win32com.client.dynamic" `
             main.py

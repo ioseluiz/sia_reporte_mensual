@@ -71,6 +71,7 @@ class MainController:
         self.view.projects_without_members_requested.connect(self._open_projects_without_members)
         self.view.projects_list_requested.connect(self._open_projects_list)
         self.view.fiscal_year_report_requested.connect(self._open_fiscal_year_report)
+        self.view.dias_libres_requested.connect(self._open_dias_libres)
 
     # ------------------------------------------------------------------
     # Arranque y configuración
@@ -320,9 +321,27 @@ class MainController:
 
         self._report_periodo = (start_date, end_date)
         self._set_busy(True)
-        self.view.set_status("Consultando transacciones diarias menores a 8 horas...")
 
-        worker = _Worker(sia_model.get_users_under_8_hours, start_date, end_date)
+        excluir_feriados = self.view.chk_excluir_feriados.isChecked()
+        feriados: list = []
+        if excluir_feriados:
+            from core import feriados_repo
+            try:
+                feriados = feriados_repo.get_fechas(start_date, end_date)
+            except Exception as exc:
+                log.warning("No se pudo cargar lista de feriados: %s", exc)
+                feriados = []
+
+        status = "Consultando transacciones diarias menores a 8 horas"
+        if excluir_feriados:
+            status += f" (excluyendo {len(feriados)} feriado(s))"
+        status += "..."
+        self.view.set_status(status)
+
+        worker = _Worker(
+            sia_model.get_users_under_8_hours,
+            start_date, end_date, feriados,
+        )
         worker.signals.finished.connect(self._on_report_under_8_finished)
         worker.signals.error.connect(self._on_report_under_8_error)
         self._pool.start(worker)
@@ -1274,6 +1293,105 @@ class MainController:
             )
         except Exception as exc:
             self.view.show_error("Error al exportar", str(exc))
+
+    # ------------------------------------------------------------------
+    # Días Libres (feriados)
+    # ------------------------------------------------------------------
+
+    def _open_dias_libres(self):
+        from view.dias_libres_dialog import DiasLibresDialog
+
+        dialog = DiasLibresDialog(self.view)
+        dialog.load_requested.connect(self._load_dias_libres)
+        dialog.add_requested.connect(self._add_dia_libre)
+        dialog.delete_requested.connect(self._delete_dia_libre)
+        dialog.export_requested.connect(self._export_dias_libres)
+        self._dias_libres_dialog = dialog
+
+        self._load_dias_libres()
+        dialog.exec()
+
+    def _load_dias_libres(self):
+        if not hasattr(self, "_dias_libres_dialog"):
+            return
+        from core import feriados_repo
+        self._dias_libres_dialog.set_busy(True, "Cargando feriados…")
+        worker = _Worker(feriados_repo.list_feriados)
+        worker.signals.finished.connect(self._on_dias_libres_loaded)
+        worker.signals.error.connect(self._on_dias_libres_error)
+        self._pool.start(worker)
+
+    def _on_dias_libres_loaded(self, data: list):
+        if not hasattr(self, "_dias_libres_dialog"):
+            return
+        self._dias_libres_dialog.display_results(data)
+        self._dias_libres_dialog.set_busy(False)
+
+    def _on_dias_libres_error(self, error: str):
+        if hasattr(self, "_dias_libres_dialog") and self._dias_libres_dialog.isVisible():
+            self._dias_libres_dialog.set_busy(False)
+            self._dias_libres_dialog.show_error(
+                "Error al cargar feriados",
+                f"No se pudo leer el archivo de feriados:\n\n{error}"
+            )
+
+    def _add_dia_libre(self, fecha, descripcion: str):
+        from core import feriados_repo
+        try:
+            was_new = feriados_repo.add_feriado(fecha, descripcion)
+        except Exception as exc:
+            if hasattr(self, "_dias_libres_dialog"):
+                self._dias_libres_dialog.show_error(
+                    "Error al agregar", f"No se pudo escribir el archivo:\n\n{exc}"
+                )
+            return
+        if hasattr(self, "_dias_libres_dialog"):
+            self._dias_libres_dialog.clear_add_form()
+            msg = "Feriado agregado." if was_new else "Descripción actualizada."
+            self._dias_libres_dialog.set_status(msg)
+        self._load_dias_libres()
+
+    def _delete_dia_libre(self, fecha):
+        from core import feriados_repo
+        try:
+            ok = feriados_repo.delete_feriado(fecha)
+        except Exception as exc:
+            if hasattr(self, "_dias_libres_dialog"):
+                self._dias_libres_dialog.show_error(
+                    "Error al eliminar", f"No se pudo escribir el archivo:\n\n{exc}"
+                )
+            return
+        if hasattr(self, "_dias_libres_dialog") and not ok:
+            self._dias_libres_dialog.show_info(
+                "Sin cambios", f"El feriado {fecha.isoformat()} ya no existía."
+            )
+        self._load_dias_libres()
+
+    def _export_dias_libres(self, data: list):
+        if not data:
+            return
+        default_name = f"Feriados_Panama_{datetime.now().strftime('%Y-%m-%d_%H%M')}.xlsx"
+        parent = self._dias_libres_dialog if hasattr(self, "_dias_libres_dialog") else self.view
+        path, _ = QFileDialog.getSaveFileName(
+            parent, "Guardar feriados", default_name,
+            "Archivos de Excel (*.xlsx)"
+        )
+        if not path:
+            return
+        try:
+            df = pd.DataFrame(data)
+            column_order = [c for c in ("fecha", "dia_semana", "descripcion") if c in df.columns]
+            df = df[column_order].rename(columns={
+                "fecha": "Fecha",
+                "dia_semana": "Día",
+                "descripcion": "Descripción",
+            })
+            df.to_excel(path, index=False, sheet_name="Feriados")
+            parent.show_info(
+                "Exportar", f"Archivo guardado exitosamente en:\n{path}"
+            )
+        except Exception as exc:
+            parent.show_error("Error al exportar", str(exc))
 
     # ------------------------------------------------------------------
     # Helpers

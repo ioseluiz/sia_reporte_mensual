@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import (
     QDateEdit, QPushButton, QListWidget, QListWidgetItem,
     QStatusBar, QFrame, QAbstractItemView, QHeaderView,
     QMessageBox, QSizePolicy, QLineEdit, QTableView, QComboBox,
+    QCheckBox,
 )
 from PyQt6.QtGui import QFont, QStandardItemModel, QStandardItem
 from PyQt6.QtCore import Qt, QDate, QSortFilterProxyModel, QRegularExpression, pyqtSignal
@@ -68,6 +69,7 @@ class MainWindow(QMainWindow):
     projects_without_members_requested = pyqtSignal()
     projects_list_requested = pyqtSignal()
     fiscal_year_report_requested = pyqtSignal()
+    dias_libres_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -103,6 +105,9 @@ class MainWindow(QMainWindow):
         config_menu = self.menuBar().addMenu("Configuración")
         action_conn = config_menu.addAction("Conexión a base de datos…")
         action_conn.triggered.connect(self.settings_requested.emit)
+
+        action_dias_libres = config_menu.addAction("Días Libres (Feriados)…")
+        action_dias_libres.triggered.connect(self.dias_libres_requested.emit)
 
         reportes_menu = self.menuBar().addMenu("Reportes")
         action_export_colab = reportes_menu.addAction("Exportar Colaboradores")
@@ -200,8 +205,15 @@ class MainWindow(QMainWindow):
         self.btn_report_under_8.setFixedHeight(36)
         self.btn_report_under_8.clicked.connect(self.report_under_8_requested.emit)
 
+        self.chk_excluir_feriados = QCheckBox("Excluir feriados")
+        self.chk_excluir_feriados.setChecked(True)
+        self.chk_excluir_feriados.setToolTip(
+            "Excluye los días feriados definidos en 'Reportes → Días Libres…'"
+        )
+
         action_row.addWidget(self.btn_query)
         action_row.addStretch()
+        action_row.addWidget(self.chk_excluir_feriados)
         action_row.addWidget(self.btn_report_under_8)
         action_row.addWidget(self.btn_export)
         layout.addLayout(action_row)
